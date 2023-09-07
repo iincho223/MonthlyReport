@@ -1,0 +1,58 @@
+@charset "UTF-8";
+
+body {
+  padding: 10px 20px;
+}
+
+p {
+  margin: 0;
+}
+
+:root {
+  /* variable */
+  --bg-theme-color: #F5F1F0;
+  --bg-color-white: #fff;
+
+  --text-color-black: #000;
+  --text-color-gray: #787878;
+  --text-color-link: #0075FF;
+
+  --border-color-black: #000;
+  --border-color-gray: #c5c5c5;
+
+  --bg-a-tag-hover: #c1c1c1;
+
+  /* メッセージ */
+  --bg-message-section-color: #FFADAD;
+  --text-message-section-color: #FF5151;
+
+  /* エラーメッセージ */
+  --text-error-message: #FF5151;
+
+  /* アイコン */
+  --bg-color-app-icon-write: #FF9595;
+  --bg-color-app-icon-read: #5BBAFF;
+  --bg-color-app-icon-schedule: #FFDC83;
+  --bg-color-app-icon-members: #ABF0FF;
+}
+
+/* フッター */
+footer.copyright {
+  position: fixed;
+  bottom: 0;
+  display: flex;
+  width: 100%;
+  padding-bottom: 10px;
+}
+
+footer.copyright>div {
+  display: flex;
+  align-items: center;
+  margin: 0 auto;
+  color: var(--text-color-gray);
+}
+
+footer.copyright>div>img {
+  width: 32px;
+  margin-right: 5px;
+}

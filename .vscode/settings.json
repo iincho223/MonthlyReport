@@ -1,0 +1,5 @@
+{
+    "java.jdt.ls.java.home": "D:\\Java\\jdk_17",
+    "java.compile.nullAnalysis.mode": "automatic",
+    "java.configuration.updateBuildConfiguration": "automatic"
+}

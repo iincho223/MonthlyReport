@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="jp">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>login</title>
+  <!-- css-->
+  <link href="../css/normalize.css" rel="stylesheet" type="text/css" />
+  <link href="../css/base.css" rel="stylesheet" type="text/css" />
+  <link href="../css/input-component.css" rel="stylesheet" type="text/css" />
+  <link href="../css/button-component.css" rel="stylesheet" type="text/css" />
+  <link href="../css/login/login.css" rel="stylesheet" type="text/css" />
+  <!-- CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.7.11"></script>
+  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+
+<body>
+  <div id="app">
+    <h1>Web月報システム</h1>
+    <form class="login-form-wrap">
+      <div class="error-message-wrap" v-if="msg != ''">
+        <p v-model="msg"></p>
+      </div>
+      <div class="input-component-style">
+        <p>社員番号</p>
+        <input type="text" class="input-component" v-model="syainNo"/>
+      </div>
+      <div class="input-component-style">
+        <p>パスワード</p>
+        <input type="password" class="input-component" v-model="password"/>
+      </div>
+      <button class="button-component login-btn" v-bind:disabled="processingFlg" @click="ckeckAuth">ログイン</button>
+      <p class="forget-password">パスワードをお忘れの方は<a href="#" class="forget-password-link">こちら</a></p>
+    </form>
+  </div>
+  <!-- フッター -->
+  <footer class="copyright">
+    <div>
+      <img src="../images/common/kaihatsu-skill-plus-plus.svg" />
+      ©開発スキル++
+    </div>
+    <script type="module">
+      import * as commonAxios from '../js/commonAxios.js';
+      var vue = new Vue({
+        el: '#app',
+        data: {
+          syainNo: '',
+          kaisyaCd: 'A001',
+          password: '',
+          processingFlg: false,
+          msg: '',
+          authRequest: {
+            syainNo: '',
+            kaisyaCd: '',
+            password: ''
+          }
+        },
+        methods: {
+          ckeckAuth: function() {
+            if (!this.processingFlg) {
+              this.processingFlg = true;
+              this.authRequest.syainNo = this.syainNo;
+              this.authRequest.kaisyaCd = this.kaisyaCd;
+              this.authRequest.password = this.password;
+              commonAxios.postAxios('http://localhost:8080/login/auth', this.authRequest).then((res) => {
+                if (res != null) {
+                  if (res.resultStatus == '0' && res.success == '0') {
+                    window.location.href = 'http://localhost:8080/top';
+                  } else {
+                    this.msg = "社員番号かパスワードが間違っています。";
+                  }
+                }
+                this.processingFlg = false;
+              });
+            }
+          }
+        }
+      })
+    </script>
+  </footer>
+</body>
+</html>
