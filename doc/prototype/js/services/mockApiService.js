@@ -33,20 +33,33 @@ const MOCK_API_DATA = {
   },
 };
 
+/**
+ * モック API からユーザープロフィールを取得する。
+ * インプット: employeeId 社員番号、password パスワード。
+ * アウトプット: 認証成功時はユーザープロフィール、失敗時は Error。
+ *
+ * @param {string} employeeId 社員番号
+ * @param {string} password パスワード
+ * @returns {Promise<object>} ユーザープロフィール
+ */
 export async function fetchUserProfileFromAPI(employeeId, password) {
   return new Promise((resolve, reject) => {
+    // API 通信を模した遅延を入れる。
     setTimeout(() => {
       const data = MOCK_API_DATA[employeeId.toUpperCase()];
+      // 対象ユーザーが存在しない場合は認証エラーを返す。
       if (!data) {
         reject(new Error("該当する社員番号が見つかりません"));
         return;
       }
 
+      // パスワード不一致時は認証失敗とする。
       if (data.password !== password) {
         reject(new Error("パスワードが間違っています"));
         return;
       }
 
+      // 応答から機微情報である password を除外する。
       const { password: _, ...userProfile } = data;
       resolve(userProfile);
     }, 800);

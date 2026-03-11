@@ -1,0 +1,60 @@
+package co.jp.monthlyreport.api.common;
+
+/**
+ * バリデーション用定数クラス。
+ * {@code @Pattern(regexp = ...)} / {@code @Size} / {@code @Min} / {@code @Max} に指定する値は
+ * コンパイル時定数である必要があるため、{@code static final} で一元管理する。
+ */
+public final class ValidationConstants {
+
+  // ---------------------------------------------------------------------------
+  // 正規表現
+  // ---------------------------------------------------------------------------
+
+  /** 社員番号：半角英数字のみ */
+  public static final String REGEX_EMPLOYEE_NO = "^[A-Za-z0-9]+$";
+
+  /** 年月（必須）：yyyy-MM 形式 */
+  public static final String REGEX_YEAR_MONTH = "^\\d{4}-\\d{2}$";
+
+  /** 年月（任意）：空文字または yyyy-MM 形式 */
+  public static final String REGEX_YEAR_MONTH_OPTIONAL = "^$|^\\d{4}-\\d{2}$";
+
+  // ---------------------------------------------------------------------------
+  // 文字列長 (@Size)
+  // ---------------------------------------------------------------------------
+
+  /** 社員番号の最大文字数 */
+  public static final int MAX_EMPLOYEE_NO = 20;
+
+  /** パスワードの最大文字数（ハッシュ長を想定） */
+  public static final int MAX_PASSWORD = 128;
+
+  /** 月報タイトルの最大文字数 */
+  public static final int MAX_REPORT_TITLE = 100;
+
+  /** フィードバックコメントの最大文字数 */
+  public static final int MAX_FEEDBACK_COMMENT = 2000;
+
+  // ---------------------------------------------------------------------------
+  // 数値範囲 (@Min / @Max)
+  // ---------------------------------------------------------------------------
+
+  /** ページ番号の最小値（1始まり） */
+  public static final int MIN_PAGE = 1;
+
+  /** 1ページあたりの最小件数 */
+  public static final int MIN_PAGE_SIZE = 1;
+
+  /** 1ページあたりの最大件数 */
+  public static final int MAX_PAGE_SIZE = 100;
+
+  /** 残業時間の最小値（時間） */
+  public static final int MIN_OVERTIME_HOURS = 0;
+
+  /** 残業時間の最大値（時間） */
+  public static final int MAX_OVERTIME_HOURS = 300;
+
+  // インスタンス化禁止
+  private ValidationConstants() {}
+}

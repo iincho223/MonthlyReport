@@ -1,35 +1,36 @@
 package co.jp.monthlyreport.api.model;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+
+/**
+ * ユーザーアカウント。データの箱として各フィールドを個別に get/set できる。
+ * Lombok により getter・setter・equals・hashCode・両コンストラクタを自動生成する。
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@ToString(exclude = "password") // パスワードをログ等に出力しないよう除外（@Data の @ToString を上書き）
 public class UserAccount {
-  private final Long userId;
-  private final String employeeNo;
-  private final String name;
-  private final String password;
-  private final UserRole role;
-  private final String officeCode;
-  private final String teamCode;
-  private final boolean active;
-  private final boolean deleted;
 
-  public UserAccount(Long userId, String employeeNo, String name, String password, UserRole role, String officeCode, String teamCode, boolean active, boolean deleted) {
-    this.userId = userId;
-    this.employeeNo = employeeNo;
-    this.name = name;
-    this.password = password;
-    this.role = role;
-    this.officeCode = officeCode;
-    this.teamCode = teamCode;
-    this.active = active;
-    this.deleted = deleted;
-  }
-
-  public Long getUserId() { return userId; }
-  public String getEmployeeNo() { return employeeNo; }
-  public String getName() { return name; }
-  public String getPassword() { return password; }
-  public UserRole getRole() { return role; }
-  public String getOfficeCode() { return officeCode; }
-  public String getTeamCode() { return teamCode; }
-  public boolean isActive() { return active; }
-  public boolean isDeleted() { return deleted; }
+  /** ユーザーID */
+  private Long userId;
+  /** 社員番号 */
+  private String employeeNo;
+  /** 氏名 */
+  private String name;
+  /** パスワード（ハッシュ）*/
+  private String password;
+  /** ロール */
+  private UserRole role;
+  /** 拠点コード */
+  private String officeCode;
+  /** チームコード */
+  private String teamCode;
+  /** 有効フラグ */
+  private boolean active;
+  /** 論理削除フラグ */
+  private boolean deleted;
 }

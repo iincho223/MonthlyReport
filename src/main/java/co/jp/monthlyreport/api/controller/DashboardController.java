@@ -14,6 +14,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/dashboard")
+/**
+ * ダッシュボード API コントローラ。
+ * インプット: 認可ヘッダと集計条件。
+ * アウトプット: ダッシュボード集計結果。
+ */
 public class DashboardController {
   private final AuthService authService;
   private final DashboardService dashboardService;
@@ -23,11 +28,22 @@ public class DashboardController {
     this.dashboardService = dashboardService;
   }
 
+  /**
+   * ダッシュボード集計 API。
+   * インプット: authorization 認可ヘッダ、request 集計対象月。
+   * アウトプット: 総件数と未回答件数。
+   *
+   * @param authorization 認可ヘッダ
+   * @param request 集計リクエスト
+   * @return 集計結果
+   */
   @PostMapping("/summary")
   public ApiResponse summary(
       @RequestHeader("Authorization") String authorization,
       @Valid @RequestBody DashboardSummaryRequest request) {
+    // 認証ユーザーを解決して集計スコープを確定する。
     AuthUser user = authService.resolveAuthUser(authorization);
+    // ダッシュボード用集計を実行する。
     return ApiResponse.ok(dashboardService.summary(user, request.month()));
   }
 }

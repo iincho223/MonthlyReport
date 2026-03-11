@@ -3,79 +3,74 @@ package co.jp.monthlyreport.api.model;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
+/**
+ * 月報レコード。フィールドは Lombok により getter/setter を自動生成する。
+ */
+@Getter
+@Setter
+@NoArgsConstructor
+@ToString
 public class ReportRecord {
+
+  /** 月報ID */
   private String reportId;
+  /** 対象月 (yyyy-MM) */
   private String month;
+  /** タイトル */
   private String title;
+  /** 営業情報 */
   private String salesInfo;
+  /** 来月見込み残業時間 */
   private Integer nextMonthOvertimeHours;
+  /** 来月見込み残業理由 */
   private String nextMonthOvertimeReason;
+  /** 今月実績残業時間 */
   private Integer thisMonthOvertimeHours;
+  /** 今月実績残業理由 */
   private String thisMonthOvertimeReason;
+  /** 体調コンディション */
   private Map<String, String> conditions = new HashMap<>();
+  /** コメント */
   private String comments;
+  /** 作成者ユーザーID */
   private Long authorUserId;
+  /** 作成者氏名 */
   private String reporterName;
+  /** 作成者社員番号 */
   private String reporterId;
+  /** 作成者ロール */
   private UserRole authorRole;
+  /** 拠点コード */
   private String officeCode;
+  /** チームコード */
   private String teamCode;
+  /** 回答コメント */
   private String feedbackComment;
+  /** 回答者ロール */
   private String responderRole;
+  /** 回答者氏名 */
   private String responderName;
+  /** 回答日時 */
   private OffsetDateTime respondedAt;
+  /** 作成日時 */
   private OffsetDateTime createdAt;
+  /** 更新日時 */
   private OffsetDateTime updatedAt;
+  /** 論理削除フラグ */
   private boolean deleted;
 
-  public String getReportId() { return reportId; }
-  public void setReportId(String reportId) { this.reportId = reportId; }
-  public String getMonth() { return month; }
-  public void setMonth(String month) { this.month = month; }
-  public String getTitle() { return title; }
-  public void setTitle(String title) { this.title = title; }
-  public String getSalesInfo() { return salesInfo; }
-  public void setSalesInfo(String salesInfo) { this.salesInfo = salesInfo; }
-  public Integer getNextMonthOvertimeHours() { return nextMonthOvertimeHours; }
-  public void setNextMonthOvertimeHours(Integer nextMonthOvertimeHours) { this.nextMonthOvertimeHours = nextMonthOvertimeHours; }
-  public String getNextMonthOvertimeReason() { return nextMonthOvertimeReason; }
-  public void setNextMonthOvertimeReason(String nextMonthOvertimeReason) { this.nextMonthOvertimeReason = nextMonthOvertimeReason; }
-  public Integer getThisMonthOvertimeHours() { return thisMonthOvertimeHours; }
-  public void setThisMonthOvertimeHours(Integer thisMonthOvertimeHours) { this.thisMonthOvertimeHours = thisMonthOvertimeHours; }
-  public String getThisMonthOvertimeReason() { return thisMonthOvertimeReason; }
-  public void setThisMonthOvertimeReason(String thisMonthOvertimeReason) { this.thisMonthOvertimeReason = thisMonthOvertimeReason; }
-  public Map<String, String> getConditions() { return conditions; }
-  public void setConditions(Map<String, String> conditions) { this.conditions = conditions; }
-  public String getComments() { return comments; }
-  public void setComments(String comments) { this.comments = comments; }
-  public Long getAuthorUserId() { return authorUserId; }
-  public void setAuthorUserId(Long authorUserId) { this.authorUserId = authorUserId; }
-  public String getReporterName() { return reporterName; }
-  public void setReporterName(String reporterName) { this.reporterName = reporterName; }
-  public String getReporterId() { return reporterId; }
-  public void setReporterId(String reporterId) { this.reporterId = reporterId; }
-  public UserRole getAuthorRole() { return authorRole; }
-  public void setAuthorRole(UserRole authorRole) { this.authorRole = authorRole; }
-  public String getOfficeCode() { return officeCode; }
-  public void setOfficeCode(String officeCode) { this.officeCode = officeCode; }
-  public String getTeamCode() { return teamCode; }
-  public void setTeamCode(String teamCode) { this.teamCode = teamCode; }
-  public String getFeedbackComment() { return feedbackComment; }
-  public void setFeedbackComment(String feedbackComment) { this.feedbackComment = feedbackComment; }
-  public String getResponderRole() { return responderRole; }
-  public void setResponderRole(String responderRole) { this.responderRole = responderRole; }
-  public String getResponderName() { return responderName; }
-  public void setResponderName(String responderName) { this.responderName = responderName; }
-  public OffsetDateTime getRespondedAt() { return respondedAt; }
-  public void setRespondedAt(OffsetDateTime respondedAt) { this.respondedAt = respondedAt; }
-  public OffsetDateTime getCreatedAt() { return createdAt; }
-  public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
-  public OffsetDateTime getUpdatedAt() { return updatedAt; }
-  public void setUpdatedAt(OffsetDateTime updatedAt) { this.updatedAt = updatedAt; }
-  public boolean isDeleted() { return deleted; }
-  public void setDeleted(boolean deleted) { this.deleted = deleted; }
-
+  /**
+   * 回答が登録済みかを返す。
+   * インプット: なし。
+   * アウトプット: 回答コメントが空でない場合 true。
+   *
+   * @return 回答登録済み可否
+   */
   public boolean hasFeedback() {
     return feedbackComment != null && !feedbackComment.isBlank();
   }
