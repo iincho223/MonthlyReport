@@ -1,9 +1,11 @@
 # API詳細設計 一覧
 
 ## 1. 目的
+
 本ディレクトリは、`API仕様書.md` をAPI単位に分解した詳細設計を管理する。
 
 ## 2. 対象API
+
 - API-01: 認証ログイン (`POST /api/v1/auth/login`)
 - API-02: トークン再発行 (`POST /api/v1/auth/refresh`)
 - API-03: ログアウト (`POST /api/v1/auth/logout`)
@@ -22,6 +24,7 @@
 - API-16: 対応ログ追加 (`POST /api/v1/escalations/log/add`)
 
 ## 3. 共通仕様
+
 - 通信方式: HTTPS + JSON
 - 通信メソッド: 原則POST
 - 認証: JWT Bearer (認証API以外)

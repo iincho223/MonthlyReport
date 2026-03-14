@@ -1,10 +1,12 @@
 # 月報管理システム API設計方針
 
 ## 1. 目的
+
 本書は、`/Users/iincho/Work/FarmEcSite/doc/共通/システム要件定義/アプリ設計方針.md` の方針に沿って、月報管理システムのAPI設計方針を定義する。
 UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を前提とする。
 
 ## 2. 適用方針
+
 - バックエンドは `Java 21 + Spring Boot` を採用する。
 - APIは `JSON API` を基本とし、通信メソッドは原則 `POST` に統一する。
 - 将来的なマイクロサービス分割に耐えるよう `APIバージョン` を明示する。
@@ -14,6 +16,7 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 - トランザクションデータを日次差分バックアップ対象とする。
 
 ## 3. プロトタイプからの機能要件整理
+
 プロトタイプの画面/動作をサーバサイド要件に分解する。
 
 - ログイン
@@ -37,18 +40,21 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 ## 4. API共通設計
 
 ### 4.1 エンドポイント命名
+
 - ベースパス: `/api/v1`
 - 通信メソッドは原則 `POST` のみ利用する。
 - 操作種別はパスで表現する。例: `/reports/search`, `/reports/detail`, `/reports/create`, `/reports/update`, `/reports/delete`
 - 画面起点ではなく、業務リソース起点で設計する。
 
 ### 4.2 認証/認可
+
 - 公開API: `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`
 - それ以外はJWT必須。
 - 認可はロール + データスコープで制御する。
 - 例: `REPORTER` は自分の `reports` のみ更新可能。
 
 ### 4.3 レスポンス形式
+
 既存 `CommonApiResponse<T>` を踏襲しつつ、HTTPステータスと合わせて返す。
 
 ```json
@@ -64,6 +70,7 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 - `resultCd`: 業務エラーコード(例: `AUTH_001`, `REPORT_404`)
 
 ### 4.4 バリデーション
+
 - 入力検証は Bean Validation を利用する。
 - 主要制約
 - `month`: `yyyy-MM`
@@ -72,7 +79,9 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 - `condition`: 許容値 `OK/WARN/NG` (UI表現の `○/△/×` はAPI境界でマッピング)
 
 ### 4.5 監査項目
+
 全トランザクション系テーブルに以下を保持する。
+
 - `registered_at`, `registered_by`
 - `updated_at`, `updated_by`
 - `delete_flag`
@@ -80,54 +89,71 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 ## 5. API一覧(初版)
 
 ### 5.1 認証
+
 1. `POST /api/v1/auth/login`
+
 - request: `employeeNo`, `password`
 - response: `accessToken`, `refreshToken`, `userProfile`
 
-2. `POST /api/v1/auth/refresh`
+1. `POST /api/v1/auth/refresh`
+
 - request: `refreshToken`
 - response: 新しいトークンペア
 
-3. `POST /api/v1/auth/logout`
+1. `POST /api/v1/auth/logout`
+
 - request: なし(Authorizationヘッダ必須)
 - response: 成功/失敗
 
 ### 5.2 ユーザー
+
 1. `POST /api/v1/users/me`
+
 - ログインユーザーのプロフィールを返す。
 
 ### 5.3 月報
+
 1. `POST /api/v1/reports/search`
+
 - body: `month`, `status`, `page`, `size`, `sort`
 - 認可に応じてサーバ側で閲覧可能範囲を絞り込む。
 
-2. `POST /api/v1/reports/detail`
+1. `POST /api/v1/reports/detail`
+
 - body: `reportId`
 - 詳細取得
 
-3. `POST /api/v1/reports/create`
+1. `POST /api/v1/reports/create`
+
 - 月報作成
 
-4. `POST /api/v1/reports/update`
+1. `POST /api/v1/reports/update`
+
 - body: `reportId` + 更新項目
 - 月報更新(作成者のみ)
 
-5. `POST /api/v1/reports/delete`
+1. `POST /api/v1/reports/delete`
+
 - body: `reportId`
 - 月報削除(作成者 or OM)
 
 ### 5.4 フィードバック
+
 1. `POST /api/v1/reports/feedback/update`
+
 - body: `reportId`, `feedbackComment`
 - TL以上のみ、かつ自分以外の月報に回答可
 
 ### 5.5 ダッシュボード
+
 1. `POST /api/v1/dashboard/summary`
+
 - 戻り値: `totalReports`, `pendingFeedbackCount`
 
 ## 6. 主要DTO案
 
 ### 6.1 ReportCreateRequest
+
 ```json
 {
   "month": "2026-03",
@@ -151,6 +177,7 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 ```
 
 ### 6.2 ReportResponse
+
 ```json
 {
   "reportId": "01HXYZ...",
@@ -175,6 +202,7 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 ```
 
 ## 7. エラー設計
+
 - 400: バリデーションエラー
 - 401: 未認証/JWT期限切れ
 - 403: 権限不足/データスコープ外アクセス
@@ -194,12 +222,14 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 ```
 
 ## 8. 非機能・運用方針への反映
+
 - 監査ログに `userId`, `role`, `uri`, `latencyMs`, `resultCd` を記録する。
 - ELK連携を前提にJSONログを出力する。
 - API公開時はHTTPSのみ許可する。
 - CI/CDで OpenAPI生成と契約テストを実施する。
 
 ## 9. 画面動作との対応
+
 `doc/プロトタイプデザイン.html` の主要遷移に対するAPI利用を以下とする。
 
 - ログイン画面送信: `POST /api/v1/auth/login`

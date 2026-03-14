@@ -1,10 +1,12 @@
 # 月報管理システム データベース設計
 
 ## 1. 目的
+
 本書は、月報管理システムの初版DB設計(論理/物理)を定義する。
 設計方針は `doc/design/api-design-policy.md` に準拠する。
 
 ## 2. 設計方針
+
 - DBMS: `MariaDB 11.x`
 - 文字コード: `utf8mb4`
 - タイムゾーン: `Asia/Tokyo`
@@ -13,6 +15,7 @@
 - マスタとトランを分離し、将来の権限拡張を容易にする
 
 ## 3. WHOカラム標準
+
 本システムのテーブルは、以下のWHOカラムを持つ。
 
 - `delete_flag` (削除フラグ)
@@ -24,6 +27,7 @@
 `delete_flag` は `0:有効 / 1:削除` とする。
 
 ## 4. 論理ER(主要エンティティ)
+
 - `users` (ユーザー)
 - `roles` (ロール)
 - `offices` (営業所)
@@ -34,6 +38,7 @@
 - `refresh_tokens` (ログイン継続用)
 
 関係:
+
 - `users.role_code -> roles.role_code`
 - `users.office_code -> offices.office_code`
 - `users.team_code -> teams.team_code`
@@ -162,6 +167,7 @@ erDiagram
 ## 5. 物理テーブル定義
 
 ## 5.1 roles
+
 | カラム | 型 | 必須 | 説明 |
 |---|---|---|---|
 | role_code | varchar(20) | Y | `REPORTER/TL/GL/OM` |
@@ -176,6 +182,7 @@ erDiagram
 PK: `role_code`
 
 ## 5.2 offices
+
 | カラム | 型 | 必須 | 説明 |
 |---|---|---|---|
 | office_code | varchar(20) | Y | 営業所コード |
@@ -189,6 +196,7 @@ PK: `role_code`
 PK: `office_code`
 
 ## 5.3 teams
+
 | カラム | 型 | 必須 | 説明 |
 |---|---|---|---|
 | team_code | varchar(20) | Y | チームコード |
@@ -204,6 +212,7 @@ PK: `team_code`
 FK: `office_code -> offices.office_code`
 
 ## 5.4 users
+
 | カラム | 型 | 必須 | 説明 |
 |---|---|---|---|
 | user_id | bigint | Y | 内部ID |
@@ -227,6 +236,7 @@ FK: `office_code -> offices.office_code`
 FK: `team_code -> teams.team_code`
 
 ## 5.5 reports
+
 | カラム | 型 | 必須 | 説明 |
 |---|---|---|---|
 | report_id | char(26) | Y | ULID |
@@ -253,6 +263,7 @@ UK: `uk_reports_author_month_alive (author_user_id, report_month, delete_flag)`
 FK: `author_user_id -> users.user_id`
 
 ## 5.6 report_conditions
+
 | カラム | 型 | 必須 | 説明 |
 |---|---|---|---|
 | report_id | char(26) | Y | 月報ID |
@@ -273,6 +284,7 @@ PK: `report_id`
 FK: `report_id -> reports.report_id`
 
 ## 5.7 report_feedbacks
+
 | カラム | 型 | 必須 | 説明 |
 |---|---|---|---|
 | report_id | char(26) | Y | 月報ID |
@@ -290,6 +302,7 @@ FK: `report_id -> reports.report_id`
 FK: `responder_user_id -> users.user_id`
 
 ## 5.8 refresh_tokens
+
 | カラム | 型 | 必須 | 説明 |
 |---|---|---|---|
 | token_id | char(26) | Y | トークンID |
@@ -307,6 +320,7 @@ PK: `token_id`
 FK: `user_id -> users.user_id`
 
 ## 6. インデックス設計
+
 - `users`
 - `uk_users_employee_no (employee_no)`
 - `idx_users_role_office_team (role_code, office_code, team_code)`
@@ -459,17 +473,20 @@ create table refresh_tokens (
 ```
 
 ## 8. データアクセス方針(JPA)
+
 - `Report` を集約ルートとして `ReportCondition` と `ReportFeedback` を 1:1 で管理する。
 - 閲覧範囲絞り込みは Repository 層でロール別Specificationを組み立てる。
 - 一覧はN+1回避のため、必要に応じて `EntityGraph` または DTO投影を使用する。
 - `delete_flag = 0` を共通検索条件として扱う。
 
 ## 9. バックアップ/監査
+
 - バックアップ対象: `reports`, `report_conditions`, `report_feedbacks`, `refresh_tokens`
 - 取得頻度: 1日1回差分
 - 監査ログとの突合用に、APIの `requestId` をログに保持する。
 
 ## 10. 移行観点(現行から)
+
 - 現行の簡易項目(社員情報、月報提出有無判定)を本設計に統合する。
 - 既存ロールコード(`KengenCd`)とのマッピングテーブルを移行時に用意する。
 - UIの `○/△/×` は保存時に `OK/WARN/NG` に変換し、取得時に逆変換する。

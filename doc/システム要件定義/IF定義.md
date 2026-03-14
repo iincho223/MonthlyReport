@@ -1,10 +1,12 @@
 # 月報管理システム IF定義
 
 ## 1. 目的
+
 本書は、月報管理システムにおける外部/内部インターフェースを定義する。
 UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 
 ## 2. IF方針
+
 - 通信方式: HTTPS + JSON
 - API通信メソッド: 原則 `POST`
 - 文字コード: UTF-8
@@ -14,6 +16,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 ## 3. フロントエンド - API IF
 
 ## 3.1 共通リクエストヘッダ
+
 | ヘッダ名 | 必須 | 説明 |
 |---|---|---|
 | Authorization | 認証API以外Y | `Bearer {accessToken}` |
@@ -21,6 +24,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 | X-Request-Id | Y | 追跡用ID(UUID推奨) |
 
 ## 3.2 共通レスポンスIF
+
 ```json
 {
   "resultStatus": "0",
@@ -38,6 +42,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 | params | object/null | 業務データ |
 
 ## 4. IF一覧
+
 | IF-ID | IF名 | 呼出元 | 呼出先 | URI |
 |---|---|---|---|---|
 | IF-API-01 | ログイン認証 | ログイン画面 | API | `/api/v1/auth/login` |
@@ -55,7 +60,9 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 ## 5. 代表IF定義(抜粋)
 
 ## 5.1 IF-API-01 ログイン認証
+
 ### Request
+
 ```json
 {
   "employeeNo": "EMP004",
@@ -64,6 +71,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 ```
 
 ### Response(params)
+
 ```json
 {
   "accessToken": "jwt...",
@@ -80,7 +88,9 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 ```
 
 ## 5.2 IF-API-06 月報一覧検索
+
 ### Request
+
 ```json
 {
   "month": "2026-03",
@@ -92,6 +102,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 ```
 
 ### Response(params)
+
 ```json
 {
   "items": [
@@ -117,7 +128,9 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 ```
 
 ## 5.3 IF-API-08 月報作成
+
 ### Request
+
 ```json
 {
   "month": "2026-03",
@@ -141,6 +154,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 ```
 
 ### Response(params)
+
 ```json
 {
   "reportId": "01HXYZ..."
@@ -148,7 +162,9 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 ```
 
 ## 5.4 IF-API-11 回答更新
+
 ### Request
+
 ```json
 {
   "reportId": "01HXYZ...",
@@ -157,6 +173,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 ```
 
 ### Response(params)
+
 ```json
 {
   "reportId": "01HXYZ...",
@@ -166,6 +183,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 ```
 
 ## 6. エラーIF
+
 | HTTP | resultStatus | 例 | 説明 |
 |---|---|---|---|
 | 400 | 1 | `VAL_001` | 入力値不正 |
@@ -176,6 +194,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 | 500 | 9 | `SYS_500` | システムエラー |
 
 ## 7. 連携上の注意事項
+
 - 画面の `○/△/×` はIF境界で `OK/WARN/NG` に変換する。
 - 一覧の表示範囲はサーバ側でロールに応じて制御し、クライアント側での絞り込みは補助用途のみとする。
 - API失敗時は `resultMsg` を優先表示する。
