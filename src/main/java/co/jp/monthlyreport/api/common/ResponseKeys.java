@@ -116,6 +116,52 @@ public final class ResponseKeys {
   /** 総ページ数 */
   public static final String TOTAL_PAGES = "totalPages";
 
+  // ---------------------------------------------------------------------------
+  // ダッシュボード拡張 (DashboardService)
+  // ---------------------------------------------------------------------------
+
+  /** 提出済み件数 */
+  public static final String SUBMITTED_COUNT = "submittedCount";
+  /** 提出率(%) */
+  public static final String SUBMISSION_RATE = "submissionRate";
+  /** 未提出メンバー一覧 */
+  public static final String UNSUBMITTED_MEMBERS = "unsubmittedMembers";
+
+  // ---------------------------------------------------------------------------
+  // エスカレーション (EscalationService)
+  // ---------------------------------------------------------------------------
+
+  /** エスカレーションID */
+  public static final String ESCALATION_ID = "escalationId";
+  /** 案件タイトル */
+  public static final String ESC_TITLE = "title";
+  /** 対象メンバー氏名 */
+  public static final String TARGET_EMPLOYEE_NAME = "targetEmployeeName";
+  /** 対象チーム */
+  public static final String TARGET_TEAM = "targetTeam";
+  /** 詳細内容 */
+  public static final String DESCRIPTION = "description";
+  /** 重要度 */
+  public static final String SEVERITY = "severity";
+  /** ステータス */
+  public static final String STATUS = "status";
+  /** 起票者氏名 */
+  public static final String CREATED_BY_NAME = "createdByName";
+  /** 起票者ロール */
+  public static final String CREATED_BY_ROLE = "createdByRole";
+  /** 対応ログ一覧 */
+  public static final String HISTORY = "history";
+  /** ログID */
+  public static final String LOG_ID = "logId";
+  /** ログ日時 */
+  public static final String LOG_DATE = "logDate";
+  /** 記録者氏名 */
+  public static final String AUTHOR_NAME = "author";
+  /** ログ本文 */
+  public static final String LOG_TEXT = "text";
+  /** ログ追加フラグ */
+  public static final String LOG_ADDED = "logAdded";
+
   // インスタンス化禁止
   private ResponseKeys() {}
 }

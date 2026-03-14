@@ -12,11 +12,20 @@
 ## 3. リクエスト
 `API仕様書.md` の `POST /reports/update` に準拠。
 
-## 4. 業務ルール
+## 4. バリデーション
+| 項目 | ルール |
+|---|---|
+| reportId | 必須 |
+| title | 必須、最太100 |
+| overtimeHours | 0-300 |
+| overtimeReason | 最太255 |
+| conditions | 全項目必須 `BEST/GOOD/WARN/NG` |
+
+## 5. 業務ルール
 - 作成者本人のみ更新可。
 - 論理削除済データは更新不可。
 
-## 5. 正常レスポンス(params)
+## 6. 正常レスポンス(params)
 ```json
 {
   "reportId": "01HXYZ...",
@@ -24,12 +33,12 @@
 }
 ```
 
-## 6. エラー
+## 7. エラー
 - `AUTH_403`: 更新権限なし
 - `REPORT_404`: 対象なし
 - `VAL_001`: 入力不正
 
-## 7. 主処理
+## 8. 主処理
 1. `reports` を取得し作成者一致を確認
 2. `reports` 更新
 3. `report_conditions` 更新

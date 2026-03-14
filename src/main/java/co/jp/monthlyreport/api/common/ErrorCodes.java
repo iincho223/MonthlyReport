@@ -11,4 +11,5 @@ public final class ErrorCodes {
   public static final String REPORT_404 = "REPORT_404";
   public static final String REPORT_409 = "REPORT_409";
   public static final String VAL_001 = "VAL_001";
+  public static final String ESC_404 = "ESC_404";
 }

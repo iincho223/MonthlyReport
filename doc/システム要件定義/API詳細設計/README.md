@@ -15,6 +15,11 @@
 - API-09: 月報更新 (`POST /api/v1/reports/update`)
 - API-10: 月報削除 (`POST /api/v1/reports/delete`)
 - API-11: 回答更新 (`POST /api/v1/reports/feedback/update`)
+- API-12: エスカレーション一覧検索 (`POST /api/v1/escalations/search`)
+- API-13: エスカレーション詳細取得 (`POST /api/v1/escalations/detail`)
+- API-14: エスカレーション作成 (`POST /api/v1/escalations/create`)
+- API-15: エスカレーション更新 (`POST /api/v1/escalations/update`)
+- API-16: 対応ログ追加 (`POST /api/v1/escalations/log/add`)
 
 ## 3. 共通仕様
 - 通信方式: HTTPS + JSON

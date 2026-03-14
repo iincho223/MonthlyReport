@@ -744,3 +744,372 @@ body {
     display: none;
   }
 }
+
+/* ==============================
+   提出期限バナー
+   ============================== */
+.deadline-banner {
+  background: #1e1b4b;
+  color: #fff;
+  padding: 0.55rem 0;
+}
+
+.deadline-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.deadline-info {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #c7d2fe;
+}
+
+.deadline-days {
+  font-size: 1.2rem;
+  font-weight: 900;
+  color: #fde68a;
+}
+
+.deadline-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 900;
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  animation: pulse 2s infinite;
+}
+
+.deadline-done {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 900;
+  background: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* ==============================
+   KPI: 提出完了率
+   ============================== */
+.kpi-value-ok {
+  color: #10b981;
+}
+
+.submission-bar-wrap {
+  margin-top: 0.4rem;
+  height: 5px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.submission-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.8s ease;
+}
+
+/* ==============================
+   未提出者モニタリング
+   ============================== */
+.unsubmitted-panel {
+  padding: 1.1rem 1.25rem;
+}
+
+.unsubmitted-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+
+.unsubmitted-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.unsubmitted-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem 0.3rem 0.35rem;
+}
+
+.unsubmitted-avatar {
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  background: #fee2e2;
+  color: #dc2626;
+  font-size: 0.7rem;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+}
+
+.unsubmitted-name {
+  font-size: 0.76rem;
+  font-weight: 900;
+  color: #374151;
+  line-height: 1;
+}
+
+.unsubmitted-id {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #ef4444;
+  text-transform: uppercase;
+}
+
+/* ==============================
+   コンディション 4値 カラー
+   ============================== */
+.condition-btn.is-active-best {
+  background: #fff;
+  color: #10b981;
+}
+
+.condition-btn.is-active-good {
+  background: #fff;
+  color: #4f46e5;
+}
+
+.condition-btn.is-active-warn {
+  background: #fff;
+  color: #d97706;
+}
+
+.condition-btn.is-active-ng {
+  background: #fff;
+  color: #ef4444;
+}
+
+/* ==============================
+   エスカレーション ナビボタン
+   ============================== */
+.esc-nav-btn {
+  color: #d97706;
+}
+
+.esc-nav-btn:hover {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+/* ==============================
+   エスカレーション 一覧
+   ============================== */
+.esc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.esc-card {
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.1s;
+  padding: 1.1rem 1.25rem;
+}
+
+.esc-card:hover {
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.13);
+  transform: translateY(-1px);
+}
+
+.esc-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.5rem;
+}
+
+.esc-card-title {
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: var(--ink-700);
+  margin-bottom: 0.35rem;
+  line-height: 1.4;
+}
+
+.esc-target {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  color: var(--ink-500);
+  margin-bottom: 0.6rem;
+}
+
+.esc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--ink-500);
+}
+
+.esc-created-by {
+  font-weight: 600;
+}
+
+.esc-date {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--ink-500);
+}
+
+/* ==============================
+   エスカレーション バッジ
+   ============================== */
+.esc-severity-badge,
+.esc-status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.18rem 0.6rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* 重要度 */
+.severity-high {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.severity-medium {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.severity-low {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+}
+
+/* ステータス */
+.status-pending {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.status-ongoing {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.status-resolved {
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+}
+
+/* ==============================
+   エスカレーション 対応ログ タイムライン
+   ============================== */
+.esc-log-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--border-subtle);
+  margin-top: 0.4rem;
+}
+
+.esc-log-entry {
+  display: flex;
+  gap: 0.75rem;
+  position: relative;
+}
+
+.esc-log-dot {
+  position: absolute;
+  left: -0.95rem;
+  top: 0.45rem;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px var(--primary);
+  flex-shrink: 0;
+}
+
+.esc-log-body {
+  flex: 1;
+  background: #f8fafc;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.9rem;
+}
+
+.esc-log-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.esc-log-author {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--ink-700);
+}
+
+.esc-log-date {
+  font-size: 0.68rem;
+  color: var(--ink-500);
+  margin-left: auto;
+}
+
+.esc-log-text {
+  font-size: 0.82rem;
+  color: var(--ink-700);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ==============================
+   エスカレーション ログ追記フォーム
+   ============================== */
+.esc-log-form {
+  background: #f8fafc;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  border: 1px dashed var(--border-subtle);
+}

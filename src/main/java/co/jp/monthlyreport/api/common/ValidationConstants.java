@@ -55,6 +55,15 @@ public final class ValidationConstants {
   /** 残業時間の最大値（時間） */
   public static final int MAX_OVERTIME_HOURS = 300;
 
+  /** エスカレーション タイトルの最大文字数 */
+  public static final int MAX_ESC_TITLE = 200;
+
+  /** エスカレーション 詳細内容の最大文字数 */
+  public static final int MAX_ESC_DESCRIPTION = 2000;
+
+  /** 対応ログの最大文字数 */
+  public static final int MAX_ESC_LOG_TEXT = 2000;
+
   // インスタンス化禁止
   private ValidationConstants() {}
 }

@@ -33,7 +33,7 @@ import org.springframework.stereotype.Service;
 public class ReportService {
   private static final Set<String> REQUIRED_CONDITION_KEYS = Set.of(
       "physical", "stress", "relationships", "worries", "fatigue", "sleep", "motivation");
-  private static final Set<String> CONDITION_VALUES = Set.of("OK", "WARN", "NG");
+  private static final Set<String> CONDITION_VALUES = Set.of("BEST", "GOOD", "WARN", "NG");
 
   private final InMemoryDataStore dataStore;
   private final MessageSource messageSource;

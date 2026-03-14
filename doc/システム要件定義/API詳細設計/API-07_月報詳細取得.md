@@ -28,13 +28,13 @@
   "month": "2026-03",
   "title": "今月の業務報告",
   "conditions": {
-    "physical": "OK",
+    "physical": "GOOD",
     "stress": "WARN",
-    "relationships": "OK",
+    "relationships": "BEST",
     "worries": "WARN",
     "fatigue": "NG",
     "sleep": "WARN",
-    "motivation": "OK"
+    "motivation": "GOOD"
   },
   "feedback": {
     "feedbackComment": null,

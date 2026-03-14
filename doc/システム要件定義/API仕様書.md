@@ -134,9 +134,16 @@
 ```json
 {
   "totalReports": 120,
-  "pendingFeedbackCount": 18
+  "pendingFeedbackCount": 18,
+  "submissionRate": 75,
+  "unsubmittedMembers": [
+    { "employeeNo": "EMP004", "name": "山田 健太" },
+    { "employeeNo": "EMP005", "name": "伊藤 直樹" }
+  ]
 }
 ```
+
+> `submissionRate` と `unsubmittedMembers` はTL以上のロールのみ返却。REPORTERは空配列・0%。
 
 ## 3.4 月報API
 
@@ -201,13 +208,13 @@
   "thisMonthOvertimeHours": 18,
   "thisMonthOvertimeReason": "障害調査",
   "conditions": {
-    "physical": "OK",
+    "physical": "GOOD",
     "stress": "WARN",
-    "relationships": "OK",
+    "relationships": "GOOD",
     "worries": "WARN",
     "fatigue": "NG",
     "sleep": "WARN",
-    "motivation": "OK"
+    "motivation": "GOOD"
   },
   "comments": "相談事項あり",
   "author": {
@@ -242,13 +249,13 @@
   "thisMonthOvertimeHours": 18,
   "thisMonthOvertimeReason": "障害調査",
   "conditions": {
-    "physical": "OK",
+    "physical": "GOOD",
     "stress": "WARN",
-    "relationships": "OK",
+    "relationships": "GOOD",
     "worries": "WARN",
     "fatigue": "NG",
     "sleep": "WARN",
-    "motivation": "OK"
+    "motivation": "GOOD"
   },
   "comments": "相談事項あり"
 }
@@ -276,13 +283,13 @@
   "thisMonthOvertimeHours": 18,
   "thisMonthOvertimeReason": "障害調査",
   "conditions": {
-    "physical": "OK",
-    "stress": "OK",
-    "relationships": "OK",
+    "physical": "GOOD",
+    "stress": "GOOD",
+    "relationships": "GOOD",
     "worries": "WARN",
     "fatigue": "WARN",
-    "sleep": "OK",
-    "motivation": "OK"
+    "sleep": "GOOD",
+    "motivation": "GOOD"
   },
   "comments": "問題なし"
 }
@@ -342,6 +349,149 @@
 }
 ```
 
+## 3.6 エスカレーションAPI
+
+> **アクセス可能ロール**: TL・GL・OMのみ。REPORTERは全APIへのアクセス不可。
+
+### 3.6.1 POST `/escalations/search`
+#### 概要
+エスカレーション一覧を検索する。ロール別データスコープはサーバで強制する。
+
+#### Request
+```json
+{
+  "status": "ALL",
+  "page": 1,
+  "size": 20
+}
+```
+
+#### Response(params)
+```json
+{
+  "items": [
+    {
+      "escalationId": "ESC001",
+      "title": "長期欠勤対応",
+      "targetEmployeeName": "山田 健太",
+      "targetTeam": "チームA",
+      "severity": "HIGH",
+      "status": "PENDING",
+      "createdByName": "佐藤 花子",
+      "updatedAt": "2026-03-10T09:00:00+09:00"
+    }
+  ],
+  "paging": {
+    "page": 1,
+    "size": 20,
+    "totalElements": 1,
+    "totalPages": 1
+  }
+}
+```
+
+### 3.6.2 POST `/escalations/detail`
+#### Request
+```json
+{
+  "escalationId": "ESC001"
+}
+```
+
+#### Response(params)
+```json
+{
+  "escalationId": "ESC001",
+  "title": "長期欠勤対応",
+  "targetEmployeeName": "山田 健太",
+  "targetTeam": "チームA",
+  "description": "長期欠勤によりチームの負荷が増加している。",
+  "severity": "HIGH",
+  "status": "PENDING",
+  "createdByName": "佐藤 花子",
+  "createdByRole": "TL",
+  "history": [
+    {
+      "date": "2026-03-10 09:00",
+      "author": "佐藤 花子",
+      "text": "本人と面談で1履目完了。来週再劤漏勤予定とのこと。"
+    }
+  ],
+  "updatedAt": "2026-03-10T09:00:00+09:00"
+}
+```
+
+### 3.6.3 POST `/escalations/create`
+#### 業務ルール
+- TL以上のみ起票可。
+
+#### Request
+```json
+{
+  "title": "長期欠勤対応",
+  "targetEmployeeName": "山田 健太",
+  "targetTeam": "チームA",
+  "description": "長期欠勤によりチームの負荷が増加している。",
+  "severity": "HIGH",
+  "status": "PENDING"
+}
+```
+
+#### Response(params)
+```json
+{
+  "escalationId": "ESC001"
+}
+```
+
+### 3.6.4 POST `/escalations/update`
+#### 業務ルール
+- 起票者またはGL以上が更新可。
+- ステータスのみ変更する場合もこのAPIを使用する。
+- ステータス遷移: PENDING ↔ ONGOING ↔ RESOLVED（双方向可）
+
+#### Request
+```json
+{
+  "escalationId": "ESC001",
+  "title": "長期欠勤対応",
+  "targetEmployeeName": "山田 健太",
+  "targetTeam": "チームA",
+  "description": "長期欠勤によりチームの負荷が増加している。",
+  "severity": "HIGH",
+  "status": "ONGOING"
+}
+```
+
+#### Response(params)
+```json
+{
+  "escalationId": "ESC001",
+  "updated": true
+}
+```
+
+### 3.6.5 POST `/escalations/log/add`
+#### 業務ルール
+- 対応ログは追記のみ可。削除は不可。
+
+#### Request
+```json
+{
+  "escalationId": "ESC001",
+  "logText": "来週再劤漏勤予定とのこと。次回面談を設定。"
+}
+```
+
+#### Response(params)
+```json
+{
+  "escalationId": "ESC001",
+  "logAdded": true,
+  "logDate": "2026-03-14T10:00:00+09:00"
+}
+```
+
 ## 4. バリデーション仕様
 | 項目 | ルール |
 |---|---|
@@ -352,9 +502,14 @@
 | overtimeHours | 0-300 |
 | overtimeReason | 最大255 |
 | feedbackComment | 最大2000 |
-| conditions | `OK/WARN/NG` のみ |
-
+| conditions | `BEST/GOOD/WARN/NG` のみ || escalation.title | 必須 |
+| escalation.targetEmployeeName | 必須 |
+| escalation.severity | `LOW/MEDIUM/HIGH` のみ |
+| escalation.status | `PENDING/ONGOING/RESOLVED` のみ |
+| escalation.logText | 必須 |
 ## 5. 権限仕様
+
+### 月報
 | ロール | 一覧参照範囲 | 月報更新 | 回答更新 | 削除 |
 |---|---|---|---|---|
 | REPORTER | 自分のみ | 自分のみ | 不可 | 自分のみ |
@@ -362,12 +517,21 @@
 | GL | 自分+同一営業所 | 自分のみ | 可(他者のみ) | 自分のみ |
 | OM | 全件 | 自分のみ | 可(他者のみ) | 全件 |
 
+### エスカレーション
+| ロール | 一覧参照範囲 | 起票 | 更新 | ログ追加 |
+|---|---|---|---|---|
+| REPORTER | 不可 | 不可 | 不可 | 不可 |
+| TL | 自チーム+自分起票分 | 可 | 可(可視範囲内) | 可 |
+| GL | 自営業所全件 | 可 | 可 | 可 |
+| OM | 全件 | 可 | 可 | 可 |
+
 ## 6. エラー仕様
 | ケース | HTTP | resultCd | メッセージ例 |
 |---|---|---|---|
 | 未認証 | 401 | AUTH_001 | ログインしてください |
 | 権限不足 | 403 | AUTH_403 | 権限がありません |
-| 対象なし | 404 | REPORT_404 | 対象の月報が存在しません |
+| 対象なし(月報) | 404 | REPORT_404 | 対象の月報が存在しません |
+| 対象なし(エスカレ) | 404 | ESC_404 | 対象のエスカレーションが存在しません |
 | 重複登録 | 409 | REPORT_409 | 同一月の月報は既に存在します |
 | 入力不正 | 400 | VAL_001 | 入力値を確認してください |
 | 予期しない障害 | 500 | SYS_500 | システムエラーが発生しました |
@@ -380,5 +544,10 @@
 - 編集保存 -> `/reports/update`
 - 回答公開 -> `/reports/feedback/update`
 - 削除 -> `/reports/delete`
+- エスカレーション一覧 -> `/escalations/search`
+- エスカレーション詳細 -> `/escalations/detail`
+- エスカレーション起票 -> `/escalations/create`
+- エスカレーション編集/ステータス更新 -> `/escalations/update`
+- 対応ログ追記 -> `/escalations/log/add`
 
-上記により、プロトタイプの操作感を維持しつつ、Spring Boot + MariaDBの業務APIとして実装可能な仕様とする。
+上記により、画面要件の操作感を維持しつつ、Spring Boot + MariaDBの業務APIとして実装可能な仕様とする。

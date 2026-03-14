@@ -51,6 +51,23 @@ public final class MessageKeys {
   /** conditions 値不正 */
   public static final String REPORT_CONDITIONS_INVALID_VALUE = "error.report.conditions_invalid_value";
 
+  // -------------------------------------------------------------------------
+  // エスカレーションエラー (ESCALATION)
+  // -------------------------------------------------------------------------
+
+  /** エスカレーションが見つからない */
+  public static final String ESC_NOT_FOUND = "error.escalation.not_found";
+  /** エスカレーションへのアクセス権限なし */
+  public static final String ESC_NO_ACCESS_PERMISSION = "error.escalation.no_access_permission";
+  /** エスカレーション起票権限なし */
+  public static final String ESC_NO_CREATE_PERMISSION = "error.escalation.no_create_permission";
+  /** エスカレーション更新権限なし */
+  public static final String ESC_NO_UPDATE_PERMISSION = "error.escalation.no_update_permission";
+  /** severity 値不正 */
+  public static final String ESC_INVALID_SEVERITY = "error.escalation.invalid_severity";
+  /** status 値不正 */
+  public static final String ESC_INVALID_STATUS = "error.escalation.invalid_status";
+
   // インスタンス化禁止
   private MessageKeys() {}
 }

@@ -16,7 +16,7 @@
 - `month`: 必須 `yyyy-MM`
 - `title`: 必須 最大100
 - `overtimeHours`: 0-300
-- `conditions`: 全項目必須 `OK/WARN/NG`
+- `conditions`: 全項目必須 `BEST/GOOD/WARN/NG`
 
 ## 5. 業務ルール
 - 同一ユーザーの同一月報(有効データ)は登録不可。

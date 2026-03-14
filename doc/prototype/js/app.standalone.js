@@ -2,11 +2,14 @@
   const { createApp, computed, onMounted, reactive, ref, watch, nextTick } = Vue;
 
   const ROLES = {
-    REPORTER: { id: "REPORTER", label: "報告者", rank: 0 },
+    REPORTER: { id: "REPORTER", label: "メンバー", rank: 0 },
     TL: { id: "TL", label: "TL (Team Leader)", rank: 1 },
     GL: { id: "GL", label: "GL (Group Leader)", rank: 2 },
     OM: { id: "OM", label: "OM (Ops Manager)", rank: 3 },
   };
+
+  // 提出期限: 毎月5日
+  const DEADLINE_DAY = 5;
 
   const CONDITION_ITEMS = [
     { id: "physical", label: "体調" },
@@ -18,6 +21,14 @@
     { id: "motivation", label: "やる気" },
   ];
 
+  // コンディション選択肢（UI表示ラベル → API送信値マッピング）
+  const CONDITION_OPTIONS = [
+    { label: "◎", desc: "絶好調",     api: "BEST", colorClass: "is-active-best" },
+    { label: "○", desc: "まぁまぁ普通", api: "GOOD", colorClass: "is-active-good" },
+    { label: "▲", desc: "ちょっと不調", api: "WARN", colorClass: "is-active-warn" },
+    { label: "×", desc: "もうだめ最悪", api: "NG",   colorClass: "is-active-ng"   },
+  ];
+
   function defaultReportForm() {
     return {
       month: new Date().toISOString().slice(0, 7),
@@ -27,6 +38,7 @@
       nextMonthOvertimeReason: "",
       thisMonthOvertime: "",
       thisMonthOvertimeReason: "",
+      // デフォルトは「○（まぁまぁ普通）」
       condition: Object.fromEntries(CONDITION_ITEMS.map((item) => [item.id, "○"])),
       comments: "",
     };
@@ -38,6 +50,56 @@
     EMP003: { name: "佐藤 花子", employeeId: "EMP003", password: "pass", role: "TL", office: "東京本社", team: "チームA" },
     EMP004: { name: "山田 健太", employeeId: "EMP004", password: "pass", role: "REPORTER", office: "東京本社", team: "チームA" },
   };
+
+  const MOCK_ESCALATIONS = [
+    {
+      id: "ESC001",
+      title: "長期欠勤メンバーの対応が必要",
+      targetEmployeeName: "山田 健太",
+      targetTeam: "チームA",
+      description: "先月から連続して欠勤が続いており、本人との連絡も取りにくくなっています。早急に面談を設定する必要があります。",
+      severity: "HIGH",
+      status: "PENDING",
+      createdByName: "佐藤 花子",
+      createdByRole: "TL",
+      logs: [],
+      createdAt: "2025-06-01",
+      updatedAt: "2025-06-01",
+    },
+    {
+      id: "ESC002",
+      title: "コンディション連続悪化（ストレス・疲労）",
+      targetEmployeeName: "山田 健太",
+      targetTeam: "チームA",
+      description: "ストレス・疲れが3ヶ月連続でNG評価となっています。月報コメントにも精神的な疲弊を示す内容が含まれており、メンタルケアの検討が必要です。",
+      severity: "MEDIUM",
+      status: "ONGOING",
+      createdByName: "佐藤 花子",
+      createdByRole: "TL",
+      logs: [
+        { logId: "LOG001", logText: "本人と個別面談を実施。業務負荷が高いことが判明。来週から担当タスクを一部チーム内で再分配する方向で合意。", authorName: "佐藤 花子", createdAt: "2025-06-05" },
+      ],
+      createdAt: "2025-05-20",
+      updatedAt: "2025-06-05",
+    },
+    {
+      id: "ESC003",
+      title: "チーム間連携不足によるプロジェクト遅延リスク",
+      targetEmployeeName: "(チーム全体)",
+      targetTeam: "チームA",
+      description: "隣接チームとの情報共有が不足しており、重複作業や認識齟齬が発生しています。GL へのエスカレーションおよびミーティング設定を検討中。",
+      severity: "LOW",
+      status: "RESOLVED",
+      createdByName: "佐藤 花子",
+      createdByRole: "TL",
+      logs: [
+        { logId: "LOG002", logText: "GL と合同ミーティングを実施し、情報共有フローを整備。今後は週次同期MTGを設ける。", authorName: "佐藤 花子", createdAt: "2025-05-28" },
+        { logId: "LOG003", logText: "改善策が定着したことを確認。RESOLVED に変更。", authorName: "佐藤 花子", createdAt: "2025-06-10" },
+      ],
+      createdAt: "2025-05-15",
+      updatedAt: "2025-06-10",
+    },
+  ];
 
   function refreshIcons() {
     nextTick(function () {
@@ -179,8 +241,8 @@
   };
 
   const HeaderBar = {
-    props: ["userProfile", "isHighRank"],
-    emits: ["logout"],
+    props: ["userProfile", "isHighRank", "canEscalate"],
+    emits: ["logout", "open-escalation"],
     template: `
       <header class="app-header">
         <div class="container header-inner">
@@ -196,6 +258,7 @@
               <div class="user-name">{{ userProfile?.name }} <span class="user-id">({{ userProfile?.employeeId }})</span></div>
               <div class="user-scope">{{ isHighRank ? userProfile?.office : userProfile?.team }} | {{ userProfile?.role }}</div>
             </div>
+            <button v-if="canEscalate" @click="$emit('open-escalation')" class="icon-btn esc-nav-btn" title="エスカレーション" aria-label="エスカレーション一覧"><i data-lucide="alert-triangle" class="icon-sm"></i></button>
             <button @click="$emit('logout')" class="icon-btn" aria-label="logout"><i data-lucide="log-out" class="icon-sm"></i></button>
           </div>
         </div>
@@ -204,7 +267,7 @@
   };
 
   const DashboardView = {
-    props: ["reports", "stats", "userProfile"],
+    props: ["reports", "stats", "userProfile", "unsubmittedMembers", "submissionRate", "currentMonthStr"],
     emits: ["open-form", "open-detail"],
     template: `
       <main class="container page-stack">
@@ -225,6 +288,31 @@
             <div class="kpi-label kpi-label-alert">未回答の報告</div>
             <div class="kpi-value kpi-value-alert">{{ stats.pending }}</div>
           </article>
+          <article class="section-card kpi-card">
+            <div class="kpi-label">今月提出完了率</div>
+            <div class="kpi-value" :class="submissionRate < 100 ? 'kpi-value-alert' : 'kpi-value-ok'">{{ submissionRate }}%</div>
+            <div class="submission-bar-wrap"><div class="submission-bar" :style="{ width: submissionRate + '%' }"></div></div>
+          </article>
+        </section>
+
+        <!-- 未提出者モニタリング -->
+        <section v-if="ROLES[userProfile?.role]?.rank > 0 && unsubmittedMembers.length > 0" class="section-card unsubmitted-panel">
+          <h3 class="block-title unsubmitted-title">
+            <i data-lucide="users" class="icon-sm icon-accent"></i>
+            未提出メンバー ({{ currentMonthStr }})
+          </h3>
+          <div class="unsubmitted-grid">
+            <div v-for="m in unsubmittedMembers" :key="m.employeeId" class="unsubmitted-chip">
+              <div class="unsubmitted-avatar">{{ m.name.charAt(0) }}</div>
+              <div>
+                <div class="unsubmitted-name">{{ m.name }}</div>
+                <div class="unsubmitted-id">{{ m.employeeId }}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section v-else-if="ROLES[userProfile?.role]?.rank > 0 && unsubmittedMembers.length === 0" class="section-card kpi-card" style="padding:0.8rem 1.2rem;">
+          <span class="kpi-label" style="color:#10b981">✨ 全員提出済みです！</span>
         </section>
 
         <section v-if="reports.length === 0" class="section-card empty-card">
@@ -276,7 +364,7 @@
         ctx.emit("save", { ...formData });
       }
 
-      return { formData, save, CONDITION_ITEMS };
+      return { formData, save, CONDITION_ITEMS, CONDITION_OPTIONS };
     },
     template: `
       <section class="form-page container">
@@ -326,7 +414,7 @@
               <div v-for="item in CONDITION_ITEMS" :key="item.id" class="condition-item">
                 <span class="condition-label">{{ item.label }}</span>
                 <div class="condition-switch">
-                  <button v-for="opt in ['○', '△', '×']" :key="opt" type="button" @click="formData.condition[item.id] = opt" :class="formData.condition[item.id] === opt ? 'condition-btn is-active' : 'condition-btn'">{{ opt }}</button>
+                  <button v-for="opt in CONDITION_OPTIONS" :key="opt.label" type="button" @click="formData.condition[item.id] = opt.label" :class="formData.condition[item.id] === opt.label ? 'condition-btn is-active ' + opt.colorClass : 'condition-btn'" :title="opt.desc">{{ opt.label }}</button>
                 </div>
               </div>
             </div>
@@ -438,6 +526,238 @@
     `,
   };
 
+  // ===== エスカレーション: 一覧 =====
+  const EscalationListView = {
+    props: ["escalations", "userProfile"],
+    emits: ["new-escalation", "open-escalation", "back"],
+    setup: function () {
+      const SEVERITY_LABELS = { HIGH: "高", MEDIUM: "中", LOW: "低" };
+      const STATUS_LABELS = { PENDING: "未対応", ONGOING: "対応中", RESOLVED: "解決済み" };
+      return { SEVERITY_LABELS, STATUS_LABELS };
+    },
+    template: `
+      <main class="container page-stack">
+        <section class="page-head">
+          <div>
+            <button @click="$emit('back')" class="icon-btn icon-btn-light" style="margin-bottom:0.4rem"><i data-lucide="chevron-left" class="icon-md"></i></button>
+            <h2 class="page-title"><i data-lucide="alert-triangle" class="icon-sm icon-accent"></i> エスカレーション</h2>
+            <p class="page-subtitle">Escalation Management</p>
+          </div>
+          <button @click="$emit('new-escalation')" class="action-btn action-primary">
+            <i data-lucide="plus" class="icon-sm"></i> 新規起票
+          </button>
+        </section>
+
+        <section v-if="escalations.length === 0" class="section-card empty-card">
+          <i data-lucide="check-circle-2" class="icon-xl icon-muted"></i>
+          <h3 class="empty-title">エスカレーションはありません</h3>
+        </section>
+
+        <section v-else class="esc-list">
+          <article v-for="esc in escalations" :key="esc.id" @click="$emit('open-escalation', esc)" class="section-card esc-card">
+            <div class="esc-card-header">
+              <span :class="'esc-severity-badge severity-' + esc.severity.toLowerCase()">{{ SEVERITY_LABELS[esc.severity] }}</span>
+              <span :class="'esc-status-badge status-' + esc.status.toLowerCase()">{{ STATUS_LABELS[esc.status] }}</span>
+              <span class="esc-date">{{ esc.updatedAt }}</span>
+            </div>
+            <h3 class="esc-card-title">{{ esc.title }}</h3>
+            <div class="esc-target">
+              <i data-lucide="user" class="icon-xs"></i>
+              {{ esc.targetEmployeeName }} ({{ esc.targetTeam }})
+            </div>
+            <div class="esc-footer">
+              <span class="esc-created-by">起票: {{ esc.createdByName }}</span>
+              <i data-lucide="chevron-right" class="icon-xs"></i>
+            </div>
+          </article>
+        </section>
+      </main>
+    `,
+  };
+
+  // ===== エスカレーション: 起票・編集フォーム =====
+  const EscalationFormView = {
+    props: ["editingEscalation"],
+    emits: ["save", "cancel"],
+    setup: function (props, ctx) {
+      const formData = reactive({
+        title: "",
+        targetEmployeeName: "",
+        targetTeam: "",
+        description: "",
+        severity: "MEDIUM",
+        status: "PENDING",
+      });
+
+      watch(
+        function () { return props.editingEscalation; },
+        function (esc) {
+          if (esc) {
+            Object.assign(formData, {
+              title: esc.title || "",
+              targetEmployeeName: esc.targetEmployeeName || "",
+              targetTeam: esc.targetTeam || "",
+              description: esc.description || "",
+              severity: esc.severity || "MEDIUM",
+              status: esc.status || "PENDING",
+            });
+          } else {
+            Object.assign(formData, { title: "", targetEmployeeName: "", targetTeam: "", description: "", severity: "MEDIUM", status: "PENDING" });
+          }
+        },
+        { immediate: true },
+      );
+
+      function save() { ctx.emit("save", { ...formData }); }
+      return { formData, save };
+    },
+    template: `
+      <section class="form-page container">
+        <div class="form-head">
+          <button @click="$emit('cancel')" class="icon-btn icon-btn-light"><i data-lucide="chevron-left" class="icon-md"></i></button>
+          <h2 class="form-title">エスカレーションの{{ editingEscalation ? '編集' : '起票' }}</h2>
+        </div>
+
+        <div class="form-stack-blocks">
+          <article class="section-card form-block">
+            <div>
+              <label class="field-label">タイトル <span style="color:var(--danger)">*</span></label>
+              <input v-model="formData.title" type="text" class="input-shell input-strong" placeholder="例: 長期欠勤対応" />
+            </div>
+          </article>
+
+          <article class="section-card form-block">
+            <h3 class="block-title">対象情報</h3>
+            <div class="two-col-grid">
+              <div>
+                <label class="field-label">対象者名</label>
+                <input v-model="formData.targetEmployeeName" type="text" class="input-shell" placeholder="氏名または「(チーム全体)」" />
+              </div>
+              <div>
+                <label class="field-label">対象チーム</label>
+                <input v-model="formData.targetTeam" type="text" class="input-shell" placeholder="チーム名" />
+              </div>
+            </div>
+          </article>
+
+          <article class="section-card form-block">
+            <h3 class="block-title">詳細説明</h3>
+            <textarea v-model="formData.description" rows="6" class="input-shell" placeholder="状況の詳細を記入してください"></textarea>
+          </article>
+
+          <article class="section-card form-block">
+            <h3 class="block-title">分類</h3>
+            <div class="two-col-grid">
+              <div>
+                <label class="field-label">重要度</label>
+                <select v-model="formData.severity" class="input-shell input-strong">
+                  <option value="LOW">低</option>
+                  <option value="MEDIUM">中</option>
+                  <option value="HIGH">高</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label">ステータス</label>
+                <select v-model="formData.status" class="input-shell input-strong">
+                  <option value="PENDING">未対応</option>
+                  <option value="ONGOING">対応中</option>
+                  <option value="RESOLVED">解決済み</option>
+                </select>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="form-actions-fixed">
+          <div class="form-actions-inner">
+            <button @click="$emit('cancel')" class="action-btn action-secondary action-fill">キャンセル</button>
+            <button @click="save" :disabled="!formData.title.trim()" class="action-btn action-primary action-fill">
+              {{ editingEscalation ? '更新する' : '起票する' }}
+            </button>
+          </div>
+        </div>
+      </section>
+    `,
+  };
+
+  // ===== エスカレーション: 詳細 =====
+  const EscalationDetailView = {
+    props: ["escalation", "userProfile"],
+    emits: ["back", "edit", "add-log"],
+    setup: function (props, ctx) {
+      const newLogText = ref("");
+      const SEVERITY_LABELS = { HIGH: "高", MEDIUM: "中", LOW: "低" };
+      const STATUS_LABELS = { PENDING: "未対応", ONGOING: "対応中", RESOLVED: "解決済み" };
+
+      const canEdit = computed(function () {
+        if (!props.userProfile) return false;
+        return ROLES[props.userProfile.role] && ROLES[props.userProfile.role].rank >= 1;
+      });
+
+      function submitLog() {
+        if (!newLogText.value.trim()) return;
+        ctx.emit("add-log", newLogText.value.trim());
+        newLogText.value = "";
+      }
+
+      return { newLogText, SEVERITY_LABELS, STATUS_LABELS, canEdit, submitLog };
+    },
+    template: `
+      <section v-if="escalation" class="container detail-page">
+        <div class="detail-head">
+          <button @click="$emit('back')" class="icon-btn icon-btn-light"><i data-lucide="chevron-left" class="icon-md"></i></button>
+          <div class="detail-actions">
+            <button v-if="canEdit" @click="$emit('edit')" class="action-btn action-soft-primary">編集</button>
+          </div>
+        </div>
+
+        <div class="detail-grid">
+          <article class="section-card detail-main">
+            <div class="esc-card-header" style="margin-bottom:0.8rem">
+              <span :class="'esc-severity-badge severity-' + escalation.severity.toLowerCase()">{{ SEVERITY_LABELS[escalation.severity] }}</span>
+              <span :class="'esc-status-badge status-' + escalation.status.toLowerCase()">{{ STATUS_LABELS[escalation.status] }}</span>
+            </div>
+            <h2 class="detail-title">{{ escalation.title }}</h2>
+            <p class="detail-meta">起票: {{ escalation.createdByName }} ({{ escalation.createdByRole }}) / {{ escalation.createdAt }}</p>
+
+            <section class="detail-section">
+              <h3 class="detail-section-title">対象情報</h3>
+              <p class="detail-paragraph">{{ escalation.targetEmployeeName }} — {{ escalation.targetTeam }}</p>
+            </section>
+
+            <section class="detail-section">
+              <h3 class="detail-section-title">詳細説明</h3>
+              <p class="detail-paragraph" style="white-space:pre-wrap">{{ escalation.description }}</p>
+            </section>
+
+            <section class="detail-section">
+              <h3 class="detail-section-title">対応ログ</h3>
+              <div v-if="escalation.logs && escalation.logs.length > 0" class="esc-log-timeline">
+                <div v-for="log in escalation.logs" :key="log.logId" class="esc-log-entry">
+                  <div class="esc-log-dot"></div>
+                  <div class="esc-log-body">
+                    <div class="esc-log-meta">
+                      <span class="esc-log-author">{{ log.authorName }}</span>
+                      <span class="esc-log-date">{{ log.createdAt }}</span>
+                    </div>
+                    <p class="esc-log-text">{{ log.logText }}</p>
+                  </div>
+                </div>
+              </div>
+              <p v-else class="detail-paragraph" style="color:var(--ink-500)">対応ログはまだありません</p>
+            </section>
+
+            <section v-if="canEdit" class="detail-section esc-log-form">
+              <h3 class="detail-section-title">対応ログを追記</h3>
+              <textarea v-model="newLogText" rows="4" class="input-shell" placeholder="対応内容を記入してください..."></textarea>
+              <button @click="submitLog" :disabled="!newLogText.trim()" class="action-btn action-primary" style="margin-top:0.6rem">ログを追記</button>
+            </section>
+          </article>
+        </div>
+      </section>
+    `,
+  };
+
   const NotificationToast = {
     props: ["notification"],
     template: `<div v-if="notification" class="notification-toast"><i data-lucide="check-circle-2" class="icon-md icon-success"></i><span class="notification-text">{{ notification }}</span></div>`,
@@ -450,6 +770,9 @@
       DashboardView,
       ReportFormView,
       ReportDetailView,
+      EscalationListView,
+      EscalationFormView,
+      EscalationDetailView,
       NotificationToast,
     },
     setup: function () {
@@ -474,6 +797,8 @@
       const view = ref("list");
       const currentReport = ref(null);
       const notification = ref(null);
+      const escalations = ref([]);
+      const currentEscalation = ref(null);
 
       let unwatchReports = null;
 
@@ -713,6 +1038,83 @@
         view.value = "list";
       }
 
+      function initEscalations(profile) {
+        if (!profile || ROLES[profile.role].rank < 1) {
+          escalations.value = [];
+          return;
+        }
+        escalations.value = MOCK_ESCALATIONS.filter(function (esc) {
+          if (profile.role === "OM") return true;
+          if (profile.role === "GL") {
+            const creator = Object.values(MOCK_API_DATA).find(function (u) { return u.name === esc.createdByName; });
+            return creator ? creator.office === profile.office : false;
+          }
+          // TL: 自チームのエスカレーション
+          return esc.targetTeam === profile.team;
+        }).map(function (esc) {
+          return { ...esc, logs: esc.logs ? esc.logs.map(function (l) { return { ...l }; }) : [] };
+        });
+      }
+
+      function openEscalationList() {
+        view.value = "escalation-list";
+      }
+
+      function openEscalationDetail(esc) {
+        currentEscalation.value = esc;
+        view.value = "escalation-detail";
+      }
+
+      function openEscalationForm(esc) {
+        currentEscalation.value = esc || null;
+        view.value = "escalation-form";
+      }
+
+      function saveEscalation(formData) {
+        if (!userProfile.value) return;
+        if (currentEscalation.value) {
+          const idx = escalations.value.findIndex(function (e) { return e.id === currentEscalation.value.id; });
+          if (idx >= 0) {
+            escalations.value[idx] = {
+              ...escalations.value[idx],
+              ...formData,
+              updatedAt: new Date().toISOString().slice(0, 10),
+            };
+          }
+          showNotification("エスカレーションを更新しました");
+        } else {
+          const newEsc = {
+            id: "ESC" + Date.now().toString(36).toUpperCase(),
+            ...formData,
+            createdByName: userProfile.value.name,
+            createdByRole: userProfile.value.role,
+            logs: [],
+            createdAt: new Date().toISOString().slice(0, 10),
+            updatedAt: new Date().toISOString().slice(0, 10),
+          };
+          escalations.value = [newEsc, ...escalations.value];
+          showNotification("エスカレーションを起票しました");
+        }
+        view.value = "escalation-list";
+      }
+
+      function addEscalationLog(logText) {
+        if (!currentEscalation.value || !userProfile.value) return;
+        const newLog = {
+          logId: "LOG" + Date.now().toString(36).toUpperCase(),
+          logText: logText,
+          authorName: userProfile.value.name,
+          createdAt: new Date().toISOString().slice(0, 10),
+        };
+        const esc = escalations.value.find(function (e) { return e.id === currentEscalation.value.id; });
+        if (esc) {
+          esc.logs = [...(esc.logs || []), newLog];
+          esc.updatedAt = new Date().toISOString().slice(0, 10);
+          currentEscalation.value = { ...esc };
+        }
+        showNotification("対応ログを追記しました");
+      }
+
       onMounted(async function () {
         try {
           await initAuth();
@@ -744,6 +1146,8 @@
         }
         if (!authUser || !profile) return;
 
+        initEscalations(profile);
+
         unwatchReports = subscribeReports(
           function (allReports) {
             reports.value = applyScopeFilter(allReports, profile, authUser).sort(function (a, b) {
@@ -774,6 +1178,52 @@
         return userProfile.value && (userProfile.value.role === "OM" || userProfile.value.role === "GL");
       });
 
+      const canEscalate = computed(function () {
+        return userProfile.value && ROLES[userProfile.value.role] && ROLES[userProfile.value.role].rank >= 1;
+      });
+
+      const currentMonthStr = new Date().toISOString().slice(0, 7);
+
+      const daysUntilDeadline = computed(function () {
+        const today = new Date();
+        const deadline = new Date(today.getFullYear(), today.getMonth(), DEADLINE_DAY);
+        if (today > deadline) return 0;
+        return Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      });
+
+      const isSelfSubmitted = computed(function () {
+        if (!user.value) return false;
+        return reports.value.some(function (r) {
+          return r.month === currentMonthStr && r.authorId === user.value.uid;
+        });
+      });
+
+      const unsubmittedMembers = computed(function () {
+        if (!userProfile.value || ROLES[userProfile.value.role].rank === 0) return [];
+        const scope = Object.values(MOCK_API_DATA).filter(function (u) {
+          if (userProfile.value.role === "OM") return true;
+          if (userProfile.value.role === "GL") return u.office === userProfile.value.office;
+          if (userProfile.value.role === "TL") return u.team === userProfile.value.team;
+          return false;
+        }).filter(function (u) { return ROLES[u.role] && ROLES[u.role].rank === 0; });
+        const submitted = new Set(
+          reports.value.filter(function (r) { return r.month === currentMonthStr; }).map(function (r) { return r.reporterId; })
+        );
+        return scope.filter(function (u) { return !submitted.has(u.employeeId); });
+      });
+
+      const submissionRate = computed(function () {
+        if (!userProfile.value || ROLES[userProfile.value.role].rank === 0) return 100;
+        const scope = Object.values(MOCK_API_DATA).filter(function (u) {
+          if (userProfile.value.role === "OM") return true;
+          if (userProfile.value.role === "GL") return u.office === userProfile.value.office;
+          if (userProfile.value.role === "TL") return u.team === userProfile.value.team;
+          return false;
+        }).filter(function (u) { return ROLES[u.role] && ROLES[u.role].rank === 0; });
+        if (scope.length === 0) return 100;
+        return Math.round(((scope.length - unsubmittedMembers.value.length) / scope.length) * 100);
+      });
+
       return {
         user,
         userProfile,
@@ -784,6 +1234,16 @@
         notification,
         stats,
         isHighRank,
+        canEscalate,
+        currentMonthStr,
+        daysUntilDeadline,
+        isSelfSubmitted,
+        unsubmittedMembers,
+        submissionRate,
+        escalations,
+        currentEscalation,
+        DEADLINE_DAY,
+        ROLES,
         handleLogin,
         handleLogout,
         openForm,
@@ -791,6 +1251,11 @@
         saveReport,
         saveFeedback,
         deleteReport,
+        openEscalationList,
+        openEscalationDetail,
+        openEscalationForm,
+        saveEscalation,
+        addEscalationLog,
       };
     },
     template: `
@@ -803,13 +1268,37 @@
         <LoginView v-else-if="!userProfile" :loading="loading" @login="handleLogin" />
 
         <div v-else>
-          <HeaderBar :user-profile="userProfile" :is-high-rank="isHighRank" @logout="handleLogout" />
+          <HeaderBar :user-profile="userProfile" :is-high-rank="isHighRank" :can-escalate="canEscalate" @logout="handleLogout" @open-escalation="openEscalationList" />
+
+          <!-- 提出期限バナー -->
+          <div class="deadline-banner">
+            <div class="container deadline-inner">
+              <div class="deadline-info">
+                <i data-lucide="calendar" class="icon-sm"></i>
+                <span>今月 (<strong>{{ currentMonthStr }}</strong>) の提出期限まであと
+                  <strong class="deadline-days">{{ daysUntilDeadline }}</strong> 日
+                  &nbsp;(毎月 {{ DEADLINE_DAY }} 日〆切)
+                </span>
+              </div>
+              <div v-if="!isSelfSubmitted" class="deadline-alert">
+                <i data-lucide="alert-circle" class="icon-sm"></i>
+                <span>未提出 — お早めに提出してください</span>
+              </div>
+              <div v-else class="deadline-done">
+                <i data-lucide="check-circle" class="icon-sm"></i>
+                <span>今月分は提出済みです</span>
+              </div>
+            </div>
+          </div>
 
           <DashboardView
             v-if="view === 'list'"
             :reports="reports"
             :stats="stats"
             :user-profile="userProfile"
+            :unsubmitted-members="unsubmittedMembers"
+            :submission-rate="submissionRate"
+            :current-month-str="currentMonthStr"
             @open-form="openForm()"
             @open-detail="openDetail"
           />
@@ -830,6 +1319,31 @@
             @edit="openForm(currentReport)"
             @delete="deleteReport"
             @save-feedback="saveFeedback"
+          />
+
+          <EscalationListView
+            v-if="view === 'escalation-list'"
+            :escalations="escalations"
+            :user-profile="userProfile"
+            @new-escalation="openEscalationForm(null)"
+            @open-escalation="openEscalationDetail"
+            @back="view = 'list'"
+          />
+
+          <EscalationFormView
+            v-if="view === 'escalation-form'"
+            :editing-escalation="currentEscalation"
+            @save="saveEscalation"
+            @cancel="view = 'escalation-list'"
+          />
+
+          <EscalationDetailView
+            v-if="view === 'escalation-detail'"
+            :escalation="currentEscalation"
+            :user-profile="userProfile"
+            @back="view = 'escalation-list'"
+            @edit="openEscalationForm(currentEscalation)"
+            @add-log="addEscalationLog"
           />
 
           <NotificationToast :notification="notification" />

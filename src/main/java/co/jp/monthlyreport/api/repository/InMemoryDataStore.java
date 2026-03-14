@@ -1,5 +1,6 @@
 package co.jp.monthlyreport.api.repository;
 
+import co.jp.monthlyreport.api.model.EscalationRecord;
 import co.jp.monthlyreport.api.model.ReportRecord;
 import co.jp.monthlyreport.api.model.UserAccount;
 import co.jp.monthlyreport.api.model.UserRole;
@@ -21,6 +22,7 @@ public class InMemoryDataStore {
   private final Map<String, UserAccount> usersByEmployeeNo = new ConcurrentHashMap<>();
   private final Map<Long, UserAccount> usersById = new ConcurrentHashMap<>();
   private final Map<String, ReportRecord> reports = new ConcurrentHashMap<>();
+  private final Map<String, EscalationRecord> escalations = new ConcurrentHashMap<>();
 
   /**
    * 初期データを登録する。
@@ -52,13 +54,13 @@ public class InMemoryDataStore {
     seed.setOfficeCode("TOKYO");
     seed.setTeamCode("TEAM_A");
     seed.setConditions(Map.of(
-        "physical", "OK",
+        "physical", "GOOD",
         "stress", "WARN",
-        "relationships", "OK",
+        "relationships", "BEST",
         "worries", "WARN",
         "fatigue", "NG",
         "sleep", "WARN",
-        "motivation", "OK"));
+        "motivation", "GOOD"));
     seed.setCreatedAt(OffsetDateTime.now().minusDays(1));
     seed.setUpdatedAt(OffsetDateTime.now().minusHours(2));
     saveReport(seed);
@@ -131,6 +133,17 @@ public class InMemoryDataStore {
   }
 
   /**
+   * 全ユーザーを取得する。
+   * インプット: なし。
+   * アウトプット: ユーザーコレクション。
+   *
+   * @return 全ユーザー
+   */
+  public Collection<UserAccount> findAllUsers() {
+    return usersById.values();
+  }
+
+  /**
    * 全月報を取得する。
    * インプット: なし。
    * アウトプット: 月報コレクション。
@@ -165,6 +178,40 @@ public class InMemoryDataStore {
   }
 
   /**
+   * 全エスカレーションを取得する。
+   * インプット: なし。
+   * アウトプット: エスカレーションコレクション。
+   *
+   * @return 全エスカレーション
+   */
+  public Collection<EscalationRecord> findAllEscalations() {
+    return escalations.values();
+  }
+
+  /**
+   * エスカレーションIDでエスカレーションを検索する。
+   * インプット: escalationId エスカレーションID。
+   * アウトプット: エスカレーションの Optional。
+   *
+   * @param escalationId エスカレーションID
+   * @return エスカレーション検索結果
+   */
+  public Optional<EscalationRecord> findEscalationById(String escalationId) {
+    return Optional.ofNullable(escalations.get(escalationId));
+  }
+
+  /**
+   * エスカレーションを保存する。
+   * インプット: record エスカレーションレコード。
+   * アウトプット: エスカレーションストアへ保存された状態。
+   *
+   * @param record エスカレーションレコード
+   */
+  public void saveEscalation(EscalationRecord record) {
+    escalations.put(record.getEscalationId(), record);
+  }
+
+  /**
    * 新しい月報IDを生成する。
    * インプット: なし。
    * アウトプット: 12 文字の英数字ID。
@@ -174,5 +221,27 @@ public class InMemoryDataStore {
   public String newReportId() {
     // UUID からハイフンを除去し 12 文字へ切り詰める。
     return UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+  }
+
+  /**
+   * 新しいエスカレーションIDを生成する。
+   * インプット: なし。
+   * アウトプット: 12 文字の英数字ID。
+   *
+   * @return エスカレーションID
+   */
+  public String newEscalationId() {
+    return "ESC" + UUID.randomUUID().toString().replace("-", "").substring(0, 9).toUpperCase();
+  }
+
+  /**
+   * 新しいログIDを生成する。
+   * インプット: なし。
+   * アウトプット: 12 文字の英数字ID。
+   *
+   * @return ログID
+   */
+  public String newLogId() {
+    return "LOG" + UUID.randomUUID().toString().replace("-", "").substring(0, 9).toUpperCase();
   }
 }
