@@ -36,6 +36,21 @@
 - `1`: 業務エラー
 - `9`: システムエラー
 
+## 2.5 フロントエンド HTTP クライアント
+
+- フロントエンド（プロトタイプ）からの全 API 通信は **axios** インスタンス経由で行う。`fetch` / `XMLHttpRequest` の直接使用は禁止する。
+- **インスタンス共通設定**:
+  - `baseURL`: `/api/v1`
+  - `headers`: `{ "Content-Type": "application/json" }`
+- **リクエストインターセプター**: `localStorage.getItem("authToken")` の値を取得し、`Authorization: Bearer <token>` を全リクエストに自動付与する（ログイン API は未認証のためトークンなしで送信する）。
+- **レスポンスインターセプター**:
+  - `resultStatus !== "0"` の場合: `resultMsg` を message とする `Error` を throw する。
+  - 正常時（`resultStatus === "0"`）: `response.data.params` を resolve する（`ApiResponse` ラッパーを剥がして返す）。
+  - HTTP 401: `localStorage` から `authToken` を削除し、`handleLogout` を呼び出してログイン画面へ遷移する。
+- 各サービスモジュール（`reportService.js` 等）は axios インスタンスが resolve した `params` のみを受け取り、`ApiResponse` 構造に直接依存しない。
+- スタンドアロン版 (`app.standalone.js`) では CDN `<script>` タグで axios を読み込む（URL: `https://cdn.jsdelivr.net/npm/axios@1.x/dist/axios.min.js`）。
+- モジュール版では `doc/prototype/js/services/apiClient.js` に axios インスタンスを集約する。
+
 ## 3. API定義
 
 ## 3.1 認証API
@@ -608,6 +623,8 @@
 | 予期しない障害 | 500 | SYS_500 | システムエラーが発生しました |
 
 ## 7. プロトタイプ動作との対応
+
+以下の画面操作はすべて axios インスタンス経由で API を呼び出す。
 
 - ログインボタン押下 -> `/auth/login`
 - 一覧初期表示 -> `/users/me`, `/dashboard/summary`, `/reports/search`

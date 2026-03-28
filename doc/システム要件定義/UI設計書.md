@@ -202,8 +202,10 @@
 
 ## 5.1 通知
 
-- 成功時: トースト表示(例: 提出しました、更新しました)
-- 失敗時: エラーメッセージ表示(API `resultMsg`)
+- 成功時: トースト表示（例: 提出しました、更新しました）
+- 失敗時: エラーメッセージ表示
+  - axios レスポンスインターセプターが `resultMsg` を `Error.message` として throw するため、画面層はキャッチした `error.message` をトーストで表示する。
+  - HTTP 401 は自動ログアウト（5.7 参照）。
 
 ## 5.2 ローディング
 
@@ -248,6 +250,18 @@
 - 同一ユーザーの同一月報は1件まで(削除フラグ有効データ内)
 - 作成者以外は月報を編集不可
 - TL以上でも自分の月報へ回答不可
+
+## 5.7 HTTP クライアント（axios）
+
+- 全 API 通信は axios インスタンス（`services/apiClient.js`）経由で行う（`fetch` / `XMLHttpRequest` の直接使用は禁止）。
+- **リクエストインターセプター**: `localStorage.getItem("authToken")` の値を取得し、`Authorization: Bearer <token>` ヘッダを全リクエストに自動付与する。
+- **レスポンスインターセプター**:
+  - `resultStatus !== "0"` の場合: `resultMsg` を message とする `Error` を throw する。画面層はキャッチした `error.message` をトーストで表示する。
+  - 正常時（`resultStatus === "0"`）: `response.data.params` を resolve する（`ApiResponse` ラッパーを剥がして返す）。各サービスは `params` のみを受け取り、`ApiResponse` 構造に直接依存しない。
+  - HTTP 401 の場合: `localStorage` から `authToken` を削除し、`handleLogout` を呼び出してログイン画面へ遷移する。
+- スタンドアロン版 (`app.standalone.js`) では CDN の `<script>` タグで axios を読み込む。
+  - URL: `https://cdn.jsdelivr.net/npm/axios@1.x/dist/axios.min.js`
+- モジュール版では `doc/prototype/js/services/apiClient.js` に axios インスタンスを集約する。
 - 未回答件数は「自分以外」かつ「回答未登録」を集計
 - エスカレーション起票はTL以上のみ
 - エスカレーション対応ログの削除は不可

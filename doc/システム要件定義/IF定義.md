@@ -19,8 +19,8 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 
 | ヘッダ名 | 必須 | 説明 |
 |---|---|---|
-| Authorization | 認証API以外Y | `Bearer {accessToken}` |
-| Content-Type | Y | `application/json` |
+| Authorization | 認証 API 以外 Y | `Bearer {accessToken}` — axios リクエストインターセプターが `localStorage.authToken` から自動付与 |
+| Content-Type | Y | `application/json` — axios インスタンスの御層設定で自動付与 |
 | X-Request-Id | Y | 追跡用ID(UUID推奨) |
 
 ## 3.2 共通レスポンスIF
@@ -197,4 +197,6 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 
 - 画面の `○/△/×` はIF境界で `OK/WARN/NG` に変換する。
 - 一覧の表示範囲はサーバ側でロールに応じて制御し、クライアント側での絞り込みは補助用途のみとする。
-- API失敗時は `resultMsg` を優先表示する。
+- API 失敗時は axios レスポンスインターセプターが `resultMsg` を message とする `Error` に変換する。画面層は `error.message` をトーストで表示する（`ApiResponse` 層を直接参照しない）。
+- HTTP 401 は axios インターセプターが共通実装する。画面層ほどの個別対応不要。
+- ログイン成功時は `params.token` (`accessToken`) を `localStorage.authToken` に保存する。

@@ -41,6 +41,6 @@ public record ApiResponse(String resultStatus, String resultMsg, String resultCd
    * @return システムエラーレスポンス
    */
   public static ApiResponse systemError(String resultMsg) {
-    return new ApiResponse("9", resultMsg, "SYS_500", null);
+    return new ApiResponse("9", resultMsg, ErrorCodes.SYS_500, null);
   }
 }

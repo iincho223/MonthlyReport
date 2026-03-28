@@ -2,10 +2,299 @@
   const { createApp, computed, onMounted, reactive, ref, watch, nextTick } = Vue;
 
   const ROLES = {
-    REPORTER: { id: "REPORTER", label: "メンバー", rank: 0 },
-    TL: { id: "TL", label: "TL (Team Leader)", rank: 1 },
-    GL: { id: "GL", label: "GL (Group Leader)", rank: 2 },
-    OM: { id: "OM", label: "OM (Ops Manager)", rank: 3 },
+    NG: { id: "NG", label: "新卒", rank: 0 },
+    TM: { id: "TM", label: "メンバー", rank: 0 },
+    TL: { id: "TL", label: "チームリーダー", rank: 1 },
+    GL: { id: "GL", label: "グループリーダー", rank: 2 },
+    OM: { id: "OM", label: "オフィスマネージャー", rank: 3 },
+    SP: { id: "SP", label: "営業担当者", rank: 1 },
+    SM: { id: "SM", label: "支店長", rank: 2 },
+    SA: { id: "SA", label: "システム管理者", rank: 4 },
+  };
+
+  const OFFICE_LABELS = {
+    TOKYO: "東京本社",
+    OSAKA: "大阪支社",
+  };
+
+  const TEAM_LABELS = {
+    HQ: "経営企画",
+    SALES_WEST: "関西第一営業部",
+    TEAM_A: "チームA",
+  };
+
+  const AUTH_TOKEN_KEY = "authToken";
+  const REFRESH_TOKEN_KEY = "refreshToken";
+  const API_BASE_URL = window.location.protocol === "file:"
+    ? "http://localhost:8080/api/v1"
+    : "/api/v1";
+
+  let sessionExpiredHandler = null;
+
+  const apiClient = window.axios.create({
+    baseURL: API_BASE_URL,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  apiClient.interceptors.request.use(function (config) {
+    const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+    if (token) {
+      config.headers.Authorization = "Bearer " + token;
+    }
+    return config;
+  });
+
+  apiClient.interceptors.response.use(
+    function (response) {
+      const data = response && response.data ? response.data : {};
+      if (data.resultStatus !== "0") {
+        return Promise.reject(new Error(data.resultMsg || "API エラーが発生しました"));
+      }
+      return data.params || {};
+    },
+    function (error) {
+      if (error && error.response && error.response.status === 401 && typeof sessionExpiredHandler === "function") {
+        sessionExpiredHandler();
+      }
+      if (error && error.response && error.response.data && error.response.data.resultMsg) {
+        return Promise.reject(new Error(error.response.data.resultMsg));
+      }
+      return Promise.reject(error);
+    }
+  );
+
+  function registerSessionExpiredHandler(handler) {
+    sessionExpiredHandler = handler;
+  }
+
+  function roleLabel(role) {
+    return ROLES[role] ? ROLES[role].label : role || "-";
+  }
+
+  function officeLabel(code) {
+    return OFFICE_LABELS[code] || code || "-";
+  }
+
+  function teamLabel(code) {
+    return TEAM_LABELS[code] || code || "-";
+  }
+
+  function isEscalationRole(role) {
+    return role !== "NG" && role !== "TM";
+  }
+
+  function isFeedbackRole(role) {
+    return role === "TL" || role === "GL" || role === "OM";
+  }
+
+  function isMaskedRole(role) {
+    return role === "SA";
+  }
+
+  function maskText(value) {
+    if (value == null || value === "") return value;
+    return "マスク表示";
+  }
+
+  function formatDateTime(value) {
+    if (!value) return "";
+    return String(value).replace("T", " ").replace("Z", "").slice(0, 16);
+  }
+
+  function enrichProfile(profile) {
+    if (!profile) return null;
+    const enriched = {
+      userId: profile.userId,
+      employeeId: profile.employeeNo || profile.employeeId,
+      name: profile.name,
+      role: profile.role,
+      roleLabel: roleLabel(profile.role),
+      officeCode: profile.officeCode,
+      office: officeLabel(profile.officeCode),
+      teamCode: profile.teamCode,
+      team: teamLabel(profile.teamCode),
+    };
+    enriched.scopeLabel = ["GL", "OM", "SM", "SA"].includes(enriched.role) ? enriched.office : enriched.team;
+    return enriched;
+  }
+
+  function conditionLabelFromApi(apiValue) {
+    const option = CONDITION_OPTIONS.find(function (item) {
+      return item.api === apiValue;
+    });
+    return option ? option.label : "○";
+  }
+
+  function conditionApiFromLabel(label) {
+    const option = CONDITION_OPTIONS.find(function (item) {
+      return item.label === label;
+    });
+    return option ? option.api : "GOOD";
+  }
+
+  function toMaskedName(name, masked) {
+    return masked ? maskText(name) : name;
+  }
+
+  function mapReportSummary(item, masked) {
+    return {
+      id: item.reportId,
+      reportId: item.reportId,
+      month: item.month,
+      title: masked ? maskText(item.title) : item.title,
+      reporterName: toMaskedName(item.reporterName, masked),
+      reporterId: item.reporterId,
+      authorRole: item.authorRole,
+      officeCode: item.officeCode,
+      office: officeLabel(item.officeCode),
+      teamCode: item.teamCode,
+      team: teamLabel(item.teamCode),
+      feedbackRegistered: Boolean(item.feedbackRegistered),
+      adminFeedback: Boolean(item.feedbackRegistered),
+      updatedAt: formatDateTime(item.updatedAt),
+    };
+  }
+
+  function mapReportDetail(item, masked) {
+    const author = item.author || {};
+    const feedback = item.feedback || {};
+    const conditions = item.conditions || {};
+    return {
+      id: item.reportId,
+      reportId: item.reportId,
+      month: item.month,
+      title: masked ? maskText(item.title) : item.title,
+      salesInfo: masked ? maskText(item.salesInfo) : item.salesInfo,
+      nextMonthOvertime: item.nextMonthOvertimeHours == null ? "" : String(item.nextMonthOvertimeHours),
+      nextMonthOvertimeReason: masked ? maskText(item.nextMonthOvertimeReason) : item.nextMonthOvertimeReason,
+      thisMonthOvertime: item.thisMonthOvertimeHours == null ? "" : String(item.thisMonthOvertimeHours),
+      thisMonthOvertimeReason: masked ? maskText(item.thisMonthOvertimeReason) : item.thisMonthOvertimeReason,
+      condition: Object.fromEntries(CONDITION_ITEMS.map(function (conditionItem) {
+        return [conditionItem.id, conditionLabelFromApi(conditions[conditionItem.id])];
+      })),
+      comments: masked ? maskText(item.comments) : item.comments,
+      reporterName: toMaskedName(author.name, masked),
+      reporterId: author.employeeNo,
+      authorRole: author.role,
+      officeCode: author.officeCode,
+      office: officeLabel(author.officeCode),
+      teamCode: author.teamCode,
+      team: teamLabel(author.teamCode),
+      adminFeedback: masked ? maskText(feedback.feedbackComment) : feedback.feedbackComment,
+      adminFeedbackRole: feedback.responderRole,
+      adminFeedbackName: toMaskedName(feedback.responderName, masked),
+      adminFeedbackAt: formatDateTime(feedback.respondedAt),
+      updatedAt: formatDateTime(item.updatedAt),
+    };
+  }
+
+  function toReportPayload(formData) {
+    return {
+      month: formData.month,
+      title: formData.title,
+      salesInfo: formData.salesInfo,
+      nextMonthOvertimeHours: Number(formData.nextMonthOvertime || 0),
+      nextMonthOvertimeReason: formData.nextMonthOvertimeReason,
+      thisMonthOvertimeHours: Number(formData.thisMonthOvertime || 0),
+      thisMonthOvertimeReason: formData.thisMonthOvertimeReason,
+      conditions: Object.fromEntries(CONDITION_ITEMS.map(function (item) {
+        return [item.id, conditionApiFromLabel(formData.condition[item.id])];
+      })),
+      comments: formData.comments,
+    };
+  }
+
+  function mapEscalationSummary(item, masked) {
+    return {
+      id: item.escalationId,
+      escalationId: item.escalationId,
+      title: masked ? maskText(item.title) : item.title,
+      targetEmployeeName: masked ? maskText(item.targetEmployeeName) : item.targetEmployeeName,
+      targetTeam: masked ? maskText(item.targetTeam) : item.targetTeam,
+      severity: item.severity,
+      status: item.status,
+      createdByName: toMaskedName(item.createdByName, masked),
+      updatedAt: formatDateTime(item.updatedAt),
+      logs: [],
+    };
+  }
+
+  function mapEscalationDetail(item, base, masked) {
+    return {
+      id: item.escalationId,
+      escalationId: item.escalationId,
+      title: masked ? maskText(item.title) : item.title,
+      targetEmployeeName: masked ? maskText(item.targetEmployeeName) : item.targetEmployeeName,
+      targetTeam: masked ? maskText(item.targetTeam) : item.targetTeam,
+      description: masked ? maskText(item.description) : item.description,
+      severity: item.severity,
+      status: item.status,
+      createdByName: toMaskedName(item.createdByName, masked),
+      createdByRole: item.createdByRole,
+      createdAt: base && base.createdAt ? base.createdAt : formatDateTime(item.updatedAt),
+      updatedAt: formatDateTime(item.updatedAt),
+      logs: (item.history || []).map(function (log) {
+        return {
+          logId: log.logId,
+          authorName: toMaskedName(log.author, masked),
+          logText: masked ? maskText(log.text) : log.text,
+          createdAt: formatDateTime(log.logDate),
+        };
+      }),
+    };
+  }
+
+  const api = {
+    login: function (payload) {
+      return apiClient.post("/auth/login", {
+        employeeNo: String(payload.employeeId || "").trim().toUpperCase(),
+        password: payload.password,
+      });
+    },
+    me: function () {
+      return apiClient.post("/users/me", {});
+    },
+    logout: function () {
+      return apiClient.post("/auth/logout", {});
+    },
+    dashboardSummary: function (month) {
+      return apiClient.post("/dashboard/summary", { month: month });
+    },
+    searchReports: function () {
+      return apiClient.post("/reports/search", { month: "", status: "ALL", page: 1, size: 100 });
+    },
+    reportDetail: function (reportId) {
+      return apiClient.post("/reports/detail", { reportId: reportId });
+    },
+    createReport: function (payload) {
+      return apiClient.post("/reports/create", payload);
+    },
+    updateReport: function (payload) {
+      return apiClient.post("/reports/update", payload);
+    },
+    deleteReport: function (reportId) {
+      return apiClient.post("/reports/delete", { reportId: reportId });
+    },
+    updateFeedback: function (reportId, feedbackComment) {
+      return apiClient.post("/reports/feedback/update", { reportId: reportId, feedbackComment: feedbackComment });
+    },
+    searchEscalations: function () {
+      return apiClient.post("/escalations/search", { status: "ALL", page: 1, size: 100 });
+    },
+    escalationDetail: function (escalationId) {
+      return apiClient.post("/escalations/detail", { escalationId: escalationId });
+    },
+    createEscalation: function (payload) {
+      return apiClient.post("/escalations/create", payload);
+    },
+    updateEscalation: function (payload) {
+      return apiClient.post("/escalations/update", payload);
+    },
+    addEscalationLog: function (escalationId, logText) {
+      return apiClient.post("/escalations/log/add", { escalationId: escalationId, logText: logText });
+    },
   };
 
   // 提出期限: 毎月5日
@@ -44,63 +333,6 @@
     };
   }
 
-  const MOCK_API_DATA = {
-    EMP001: { name: "田中 太郎", employeeId: "EMP001", password: "pass", role: "OM", office: "東京本社", team: "経営企画" },
-    EMP002: { name: "鈴木 一郎", employeeId: "EMP002", password: "pass", role: "GL", office: "大阪支社", team: "関西第一営業部" },
-    EMP003: { name: "佐藤 花子", employeeId: "EMP003", password: "pass", role: "TL", office: "東京本社", team: "チームA" },
-    EMP004: { name: "山田 健太", employeeId: "EMP004", password: "pass", role: "REPORTER", office: "東京本社", team: "チームA" },
-  };
-
-  const MOCK_ESCALATIONS = [
-    {
-      id: "ESC001",
-      title: "長期欠勤メンバーの対応が必要",
-      targetEmployeeName: "山田 健太",
-      targetTeam: "チームA",
-      description: "先月から連続して欠勤が続いており、本人との連絡も取りにくくなっています。早急に面談を設定する必要があります。",
-      severity: "HIGH",
-      status: "PENDING",
-      createdByName: "佐藤 花子",
-      createdByRole: "TL",
-      logs: [],
-      createdAt: "2025-06-01",
-      updatedAt: "2025-06-01",
-    },
-    {
-      id: "ESC002",
-      title: "コンディション連続悪化（ストレス・疲労）",
-      targetEmployeeName: "山田 健太",
-      targetTeam: "チームA",
-      description: "ストレス・疲れが3ヶ月連続でNG評価となっています。月報コメントにも精神的な疲弊を示す内容が含まれており、メンタルケアの検討が必要です。",
-      severity: "MEDIUM",
-      status: "ONGOING",
-      createdByName: "佐藤 花子",
-      createdByRole: "TL",
-      logs: [
-        { logId: "LOG001", logText: "本人と個別面談を実施。業務負荷が高いことが判明。来週から担当タスクを一部チーム内で再分配する方向で合意。", authorName: "佐藤 花子", createdAt: "2025-06-05" },
-      ],
-      createdAt: "2025-05-20",
-      updatedAt: "2025-06-05",
-    },
-    {
-      id: "ESC003",
-      title: "チーム間連携不足によるプロジェクト遅延リスク",
-      targetEmployeeName: "(チーム全体)",
-      targetTeam: "チームA",
-      description: "隣接チームとの情報共有が不足しており、重複作業や認識齟齬が発生しています。GL へのエスカレーションおよびミーティング設定を検討中。",
-      severity: "LOW",
-      status: "RESOLVED",
-      createdByName: "佐藤 花子",
-      createdByRole: "TL",
-      logs: [
-        { logId: "LOG002", logText: "GL と合同ミーティングを実施し、情報共有フローを整備。今後は週次同期MTGを設ける。", authorName: "佐藤 花子", createdAt: "2025-05-28" },
-        { logId: "LOG003", logText: "改善策が定着したことを確認。RESOLVED に変更。", authorName: "佐藤 花子", createdAt: "2025-06-10" },
-      ],
-      createdAt: "2025-05-15",
-      updatedAt: "2025-06-10",
-    },
-  ];
-
   function refreshIcons() {
     nextTick(function () {
       if (window.lucide) {
@@ -109,100 +341,6 @@
     });
   }
 
-  function getFirebaseConfig() {
-    try {
-      const raw = typeof __firebase_config !== "undefined" ? __firebase_config : "{}";
-      return JSON.parse(raw);
-    } catch (_) {
-      return {};
-    }
-  }
-
-  function getAppId() {
-    return typeof __app_id !== "undefined" ? __app_id : "monthly-report-vue-pro";
-  }
-
-  function getInitialAuthToken() {
-    return typeof __initial_auth_token !== "undefined" ? __initial_auth_token : null;
-  }
-
-  function hasValidFirebaseConfig(config) {
-    return Boolean(
-      config &&
-        typeof config.apiKey === "string" &&
-        config.apiKey.trim().length > 20 &&
-        typeof config.authDomain === "string" &&
-        config.authDomain.trim().length > 0 &&
-        typeof config.projectId === "string" &&
-        config.projectId.trim().length > 0,
-    );
-  }
-
-  const LOCAL_STORE_KEY = "monthly-report-prototype-local-store";
-  const LOCAL_UID_KEY = "monthly-report-prototype-local-uid";
-
-  function loadLocalStore() {
-    try {
-      const raw = window.localStorage.getItem(LOCAL_STORE_KEY);
-      if (!raw) return { profilesByUid: {}, reports: [] };
-      const parsed = JSON.parse(raw);
-      return {
-        profilesByUid: parsed && parsed.profilesByUid ? parsed.profilesByUid : {},
-        reports: Array.isArray(parsed && parsed.reports) ? parsed.reports : [],
-      };
-    } catch (_) {
-      return { profilesByUid: {}, reports: [] };
-    }
-  }
-
-  function saveLocalStore(store) {
-    window.localStorage.setItem(LOCAL_STORE_KEY, JSON.stringify(store));
-  }
-
-  function createLocalUid() {
-    return "local_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  }
-
-  function createLocalReportId() {
-    return "report_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  }
-
-  async function fetchUserProfileFromAPI(employeeId, password) {
-    return new Promise(function (resolve, reject) {
-      setTimeout(function () {
-        const data = MOCK_API_DATA[String(employeeId || "").toUpperCase()];
-        if (!data) {
-          reject(new Error("該当する社員番号が見つかりません"));
-          return;
-        }
-        if (data.password !== password) {
-          reject(new Error("パスワードが間違っています"));
-          return;
-        }
-        const userProfile = {
-          name: data.name,
-          employeeId: data.employeeId,
-          role: data.role,
-          office: data.office,
-          team: data.team,
-        };
-        resolve(userProfile);
-      }, 800);
-    });
-  }
-
-  function applyScopeFilter(allReports, profile, authUser) {
-    if (profile.role === "REPORTER") {
-      return allReports.filter((report) => report.authorId === authUser.uid);
-    }
-    if (profile.role === "TL") {
-      return allReports.filter((report) => report.authorId === authUser.uid || report.team === profile.team);
-    }
-    if (profile.role === "GL") {
-      return allReports.filter((report) => report.authorId === authUser.uid || report.office === profile.office);
-    }
-    return allReports;
-  }
 
   const LoginView = {
     props: ["loading"],
@@ -256,7 +394,7 @@
           <div class="user-area">
             <div class="user-meta">
               <div class="user-name">{{ userProfile?.name }} <span class="user-id">({{ userProfile?.employeeId }})</span></div>
-              <div class="user-scope">{{ isHighRank ? userProfile?.office : userProfile?.team }} | {{ userProfile?.role }}</div>
+              <div class="user-scope">{{ userProfile?.scopeLabel }} | {{ userProfile?.roleLabel }}</div>
             </div>
             <button v-if="canEscalate" @click="$emit('open-escalation')" class="icon-btn esc-nav-btn" title="エスカレーション" aria-label="エスカレーション一覧"><i data-lucide="alert-triangle" class="icon-sm"></i></button>
             <button @click="$emit('logout')" class="icon-btn" aria-label="logout"><i data-lucide="log-out" class="icon-sm"></i></button>
@@ -276,7 +414,7 @@
             <h2 class="page-title"><i data-lucide="layout-dashboard" class="icon-sm icon-accent"></i> ダッシュボード</h2>
             <p class="page-subtitle">Status Monitoring</p>
           </div>
-          <button @click="$emit('open-form')" class="action-btn action-primary"><i data-lucide="plus" class="icon-sm"></i> 新規提出</button>
+          <button v-if="userProfile?.role !== 'NG'" @click="$emit('open-form')" class="action-btn action-primary"><i data-lucide="plus" class="icon-sm"></i> 新規提出</button>
         </section>
 
         <section v-if="ROLES[userProfile?.role]?.rank > 0" class="kpi-grid">
@@ -302,11 +440,11 @@
             未提出メンバー ({{ currentMonthStr }})
           </h3>
           <div class="unsubmitted-grid">
-            <div v-for="m in unsubmittedMembers" :key="m.employeeId" class="unsubmitted-chip">
+            <div v-for="m in unsubmittedMembers" :key="m.employeeNo" class="unsubmitted-chip">
               <div class="unsubmitted-avatar">{{ m.name.charAt(0) }}</div>
               <div>
                 <div class="unsubmitted-name">{{ m.name }}</div>
-                <div class="unsubmitted-id">{{ m.employeeId }}</div>
+                <div class="unsubmitted-id">{{ m.employeeNo }}</div>
               </div>
             </div>
           </div>
@@ -324,7 +462,7 @@
           <article v-for="report in reports" :key="report.id" @click="$emit('open-detail', report)" class="section-card report-card">
             <div class="report-card-head">
               <div class="report-month-chip">{{ report.month }}</div>
-              <span :class="report.adminFeedback ? 'status-chip status-checked' : 'status-chip status-waiting'">{{ report.adminFeedback ? 'Checked' : 'Waiting' }}</span>
+              <span :class="report.feedbackRegistered ? 'status-chip status-checked' : 'status-chip status-waiting'">{{ report.feedbackRegistered ? 'Checked' : 'Waiting' }}</span>
             </div>
             <h3 class="report-title">{{ report.title || '無題の報告' }}</h3>
             <div class="report-card-foot">
@@ -454,8 +592,7 @@
 
       const canFeedback = computed(function () {
         if (!props.userProfile || !props.report) return false;
-        const rank = ROLES[props.userProfile.role] ? ROLES[props.userProfile.role].rank : 0;
-        return rank > 0 && props.report.authorId !== (props.user && props.user.uid);
+        return isFeedbackRole(props.userProfile.role) && props.report.reporterId !== props.userProfile.employeeId;
       });
 
       function saveFeedback() {
@@ -469,8 +606,8 @@
         <div class="detail-head">
           <button @click="$emit('back')" class="icon-btn icon-btn-light"><i data-lucide="chevron-left" class="icon-md"></i></button>
           <div class="detail-actions">
-            <button v-if="report.authorId === user?.uid" @click="$emit('edit')" class="action-btn action-soft-primary">編集</button>
-            <button v-if="report.authorId === user?.uid || userProfile?.role === 'OM'" @click="$emit('delete')" class="action-btn action-soft-danger">削除</button>
+            <button v-if="report.reporterId === userProfile?.employeeId" @click="$emit('edit')" class="action-btn action-soft-primary">編集</button>
+            <button v-if="report.reporterId === userProfile?.employeeId || userProfile?.role === 'OM'" @click="$emit('delete')" class="action-btn action-soft-danger">削除</button>
           </div>
         </div>
 
@@ -776,20 +913,6 @@
       NotificationToast,
     },
     setup: function () {
-      const firebaseConfig = getFirebaseConfig();
-      const appId = getAppId();
-      const initialAuthToken = getInitialAuthToken();
-      const useFirebase = typeof firebase !== "undefined" && hasValidFirebaseConfig(firebaseConfig);
-
-      const firebaseApp = useFirebase ? firebase.initializeApp(firebaseConfig) : null;
-      const auth = useFirebase ? firebase.auth(firebaseApp) : null;
-      const db = useFirebase ? firebase.firestore(firebaseApp) : null;
-
-      const localStore = loadLocalStore();
-      const localAuthState = { currentUser: null };
-      const localAuthListeners = [];
-      const localReportListeners = [];
-
       const user = ref(null);
       const userProfile = ref(null);
       const reports = ref([]);
@@ -799,8 +922,13 @@
       const notification = ref(null);
       const escalations = ref([]);
       const currentEscalation = ref(null);
-
-      let unwatchReports = null;
+      const dashboardSummary = ref({
+        totalReports: 0,
+        pendingFeedbackCount: 0,
+        submissionRate: 0,
+        unsubmittedMembers: [],
+      });
+      const currentMonthStr = new Date().toISOString().slice(0, 7);
 
       function showNotification(message) {
         notification.value = message;
@@ -809,156 +937,99 @@
         }, 3000);
       }
 
-      function profileRefByUid(uid) {
-        if (!db) return null;
-        return db
-          .collection("artifacts")
-          .doc(appId)
-          .collection("users")
-          .doc(uid)
-          .collection("profile")
-          .doc("data");
+      function clearStoredTokens() {
+        window.localStorage.removeItem(AUTH_TOKEN_KEY);
+        window.localStorage.removeItem(REFRESH_TOKEN_KEY);
       }
 
-      function reportsCollectionRef() {
-        if (!db) return null;
-        return db
-          .collection("artifacts")
-          .doc(appId)
-          .collection("public")
-          .doc("data")
-          .collection("reports");
-      }
-
-      function emitLocalAuthChanged() {
-        localAuthListeners.forEach(function (listener) {
-          listener(localAuthState.currentUser);
-        });
-      }
-
-      function onAuthChanged(listener) {
-        if (auth) {
-          return auth.onAuthStateChanged(listener);
-        }
-        localAuthListeners.push(listener);
-        listener(localAuthState.currentUser);
-        return function () {
-          const idx = localAuthListeners.indexOf(listener);
-          if (idx >= 0) localAuthListeners.splice(idx, 1);
+      function resetState() {
+        user.value = null;
+        userProfile.value = null;
+        reports.value = [];
+        escalations.value = [];
+        currentReport.value = null;
+        currentEscalation.value = null;
+        dashboardSummary.value = {
+          totalReports: 0,
+          pendingFeedbackCount: 0,
+          submissionRate: 0,
+          unsubmittedMembers: [],
         };
+        view.value = "list";
       }
 
-      function emitLocalReports() {
-        const cloned = localStore.reports.map(function (report) {
-          return { ...report };
+      function clearSession(message) {
+        clearStoredTokens();
+        resetState();
+        if (message) {
+          showNotification(message);
+        }
+      }
+
+      function storeLoginSession(params) {
+        window.localStorage.setItem(AUTH_TOKEN_KEY, params.accessToken);
+        window.localStorage.setItem(REFRESH_TOKEN_KEY, params.refreshToken);
+      }
+
+      async function loadProfile() {
+        const params = await api.me();
+        const profile = enrichProfile(params);
+        user.value = profile;
+        userProfile.value = profile;
+        return profile;
+      }
+
+      async function loadReports() {
+        if (!userProfile.value) return [];
+        const params = await api.searchReports();
+        const masked = isMaskedRole(userProfile.value.role);
+        reports.value = (params.items || []).map(function (item) {
+          return mapReportSummary(item, masked);
         });
-        localReportListeners.forEach(function (listener) {
-          listener(cloned);
+        return reports.value;
+      }
+
+      async function loadDashboard() {
+        if (!userProfile.value) return;
+        dashboardSummary.value = await api.dashboardSummary(currentMonthStr);
+      }
+
+      async function loadEscalations() {
+        if (!userProfile.value || !isEscalationRole(userProfile.value.role)) {
+          escalations.value = [];
+          return [];
+        }
+        const params = await api.searchEscalations();
+        const masked = isMaskedRole(userProfile.value.role);
+        escalations.value = (params.items || []).map(function (item) {
+          return mapEscalationSummary(item, masked);
         });
+        return escalations.value;
       }
 
-      async function getProfile(uid) {
-        if (db) {
-          const snapshot = await profileRefByUid(uid).get();
-          return snapshot.exists ? snapshot.data() : null;
-        }
-        return localStore.profilesByUid[uid] || null;
+      async function reloadHomeData() {
+        await Promise.all([loadReports(), loadDashboard(), loadEscalations()]);
       }
 
-      async function setProfile(uid, profile) {
-        if (db) {
-          await profileRefByUid(uid).set(profile);
-          return;
-        }
-        localStore.profilesByUid[uid] = { ...profile };
-        saveLocalStore(localStore);
-      }
-
-      function subscribeReports(listener, onError) {
-        if (db) {
-          return reportsCollectionRef().onSnapshot(
-            function (snapshot) {
-              const allReports = snapshot.docs.map(function (reportDoc) {
-                return { id: reportDoc.id, ...reportDoc.data() };
-              });
-              listener(allReports);
-            },
-            onError,
-          );
-        }
-
-        localReportListeners.push(listener);
-        listener(localStore.reports.map(function (report) {
-          return { ...report };
-        }));
-        return function () {
-          const idx = localReportListeners.indexOf(listener);
-          if (idx >= 0) localReportListeners.splice(idx, 1);
-        };
-      }
-
-      async function addReport(payload) {
-        if (db) {
-          await reportsCollectionRef().add(payload);
-          return;
-        }
-        localStore.reports.push({ id: createLocalReportId(), ...payload });
-        saveLocalStore(localStore);
-        emitLocalReports();
-      }
-
-      async function updateReport(id, payload) {
-        if (db) {
-          await reportsCollectionRef().doc(id).update(payload);
-          return;
-        }
-        localStore.reports = localStore.reports.map(function (report) {
-          return report.id === id ? { ...report, ...payload } : report;
-        });
-        saveLocalStore(localStore);
-        emitLocalReports();
-      }
-
-      async function removeReport(id) {
-        if (db) {
-          await reportsCollectionRef().doc(id).delete();
-          return;
-        }
-        localStore.reports = localStore.reports.filter(function (report) {
-          return report.id !== id;
-        });
-        saveLocalStore(localStore);
-        emitLocalReports();
-      }
-
-      async function initAuth() {
-        if (auth) {
-          if (initialAuthToken) {
-            await auth.signInWithCustomToken(initialAuthToken);
-            return;
-          }
-          await auth.signInAnonymously();
-          return;
-        }
-
-        let uid = window.localStorage.getItem(LOCAL_UID_KEY);
-        if (!uid) {
-          uid = createLocalUid();
-          window.localStorage.setItem(LOCAL_UID_KEY, uid);
-        }
-        localAuthState.currentUser = { uid: uid, isAnonymous: true };
-        emitLocalAuthChanged();
+      async function restoreSession() {
+        await loadProfile();
+        await reloadHomeData();
       }
 
       async function handleLogin(loginData) {
-        if (!loginData.employeeId || !loginData.password || !user.value) return;
+        if (!loginData.employeeId || !loginData.password) return;
         loading.value = true;
         try {
-          const profile = await fetchUserProfileFromAPI(loginData.employeeId, loginData.password);
-          await setProfile(user.value.uid, profile);
+          const params = await api.login(loginData);
+          storeLoginSession(params);
+          const profile = enrichProfile(params.userProfile);
+          user.value = profile;
           userProfile.value = profile;
+          await reloadHomeData();
+          view.value = "list";
           showNotification("ログインしました: " + profile.name);
         } catch (error) {
+          clearStoredTokens();
           showNotification(error.message || "ログインエラー");
         } finally {
           loading.value = false;
@@ -966,14 +1037,16 @@
         }
       }
 
-      async function handleLogout() {
-        if (auth) {
-          await auth.signOut();
-        } else {
-          localAuthState.currentUser = null;
-          emitLocalAuthChanged();
+      async function handleLogout(skipApi, message) {
+        if (!skipApi) {
+          try {
+            await api.logout();
+          } catch (_) {
+            // トークン期限切れ時も画面状態だけは確実に初期化する。
+          }
         }
-        window.location.reload();
+        clearSession(message);
+        refreshIcons();
       }
 
       function openForm(report) {
@@ -981,88 +1054,97 @@
         view.value = "form";
       }
 
-      function openDetail(report) {
-        currentReport.value = report;
-        view.value = "detail";
+      async function openDetail(report) {
+        loading.value = true;
+        try {
+          const params = await api.reportDetail(report.reportId || report.id);
+          currentReport.value = mapReportDetail(params, isMaskedRole(userProfile.value.role));
+          view.value = "detail";
+        } catch (error) {
+          showNotification(error.message || "月報詳細の取得に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
       }
 
       async function saveReport(formData) {
-        if (!user.value || !userProfile.value) return;
+        if (!userProfile.value) return;
 
-        const payload = {
-          ...formData,
-          authorId: user.value.uid,
-          authorRole: userProfile.value.role,
-          reporterName: userProfile.value.name,
-          reporterId: userProfile.value.employeeId,
-          office: userProfile.value.office,
-          team: userProfile.value.team,
-          updatedAt: db ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString(),
-        };
-
-        if (currentReport.value && currentReport.value.id) {
-          await updateReport(currentReport.value.id, payload);
-          showNotification("更新しました");
-        } else {
-          await addReport({
-            ...payload,
-            createdAt: db ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString(),
-            adminFeedback: "",
-            adminFeedbackRole: "",
-            adminFeedbackName: "",
-          });
-          showNotification("提出しました");
+        loading.value = true;
+        try {
+          const payload = toReportPayload(formData);
+          if (currentReport.value && currentReport.value.reportId) {
+            await api.updateReport({ ...payload, reportId: currentReport.value.reportId });
+            showNotification("更新しました");
+          } else {
+            await api.createReport(payload);
+            showNotification("提出しました");
+          }
+          await Promise.all([loadReports(), loadDashboard()]);
+          currentReport.value = null;
+          view.value = "list";
+        } catch (error) {
+          showNotification(error.message || "月報の保存に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
         }
-        view.value = "list";
       }
 
       async function saveFeedback(feedbackComment) {
         if (!currentReport.value || !userProfile.value) return;
-        const roleLabel = ROLES[userProfile.value.role] ? ROLES[userProfile.value.role].label : "管理者";
-        const updateData = {
-          adminFeedback: feedbackComment,
-          adminFeedbackRole: roleLabel,
-          adminFeedbackName: userProfile.value.name,
-          adminFeedbackAt: db ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString(),
-        };
-        await updateReport(currentReport.value.id, updateData);
-        Object.assign(currentReport.value, updateData);
-        showNotification("回答を保存しました");
+        loading.value = true;
+        try {
+          await api.updateFeedback(currentReport.value.reportId, feedbackComment);
+          currentReport.value = mapReportDetail(
+            await api.reportDetail(currentReport.value.reportId),
+            isMaskedRole(userProfile.value.role)
+          );
+          await Promise.all([loadReports(), loadDashboard()]);
+          showNotification("回答を保存しました");
+        } catch (error) {
+          showNotification(error.message || "回答の保存に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
       }
 
       async function deleteReport() {
-        if (!currentReport.value || !currentReport.value.id) return;
+        if (!currentReport.value || !currentReport.value.reportId) return;
         if (!confirm("削除しますか？")) return;
-        await removeReport(currentReport.value.id);
-        showNotification("削除しました");
-        view.value = "list";
-      }
-
-      function initEscalations(profile) {
-        if (!profile || ROLES[profile.role].rank < 1) {
-          escalations.value = [];
-          return;
+        loading.value = true;
+        try {
+          await api.deleteReport(currentReport.value.reportId);
+          await Promise.all([loadReports(), loadDashboard()]);
+          currentReport.value = null;
+          view.value = "list";
+          showNotification("削除しました");
+        } catch (error) {
+          showNotification(error.message || "削除に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
         }
-        escalations.value = MOCK_ESCALATIONS.filter(function (esc) {
-          if (profile.role === "OM") return true;
-          if (profile.role === "GL") {
-            const creator = Object.values(MOCK_API_DATA).find(function (u) { return u.name === esc.createdByName; });
-            return creator ? creator.office === profile.office : false;
-          }
-          // TL: 自チームのエスカレーション
-          return esc.targetTeam === profile.team;
-        }).map(function (esc) {
-          return { ...esc, logs: esc.logs ? esc.logs.map(function (l) { return { ...l }; }) : [] };
-        });
       }
 
       function openEscalationList() {
         view.value = "escalation-list";
       }
 
-      function openEscalationDetail(esc) {
-        currentEscalation.value = esc;
-        view.value = "escalation-detail";
+      async function openEscalationDetail(esc) {
+        loading.value = true;
+        try {
+          const params = await api.escalationDetail(esc.escalationId || esc.id);
+          currentEscalation.value = mapEscalationDetail(params, esc, isMaskedRole(userProfile.value.role));
+          view.value = "escalation-detail";
+        } catch (error) {
+          showNotification(error.message || "エスカレーション詳細の取得に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
       }
 
       function openEscalationForm(esc) {
@@ -1070,95 +1152,67 @@
         view.value = "escalation-form";
       }
 
-      function saveEscalation(formData) {
+      async function saveEscalation(formData) {
         if (!userProfile.value) return;
-        if (currentEscalation.value) {
-          const idx = escalations.value.findIndex(function (e) { return e.id === currentEscalation.value.id; });
-          if (idx >= 0) {
-            escalations.value[idx] = {
-              ...escalations.value[idx],
-              ...formData,
-              updatedAt: new Date().toISOString().slice(0, 10),
-            };
+        loading.value = true;
+        try {
+          if (currentEscalation.value && currentEscalation.value.escalationId) {
+            await api.updateEscalation({ ...formData, escalationId: currentEscalation.value.escalationId });
+            showNotification("エスカレーションを更新しました");
+          } else {
+            await api.createEscalation(formData);
+            showNotification("エスカレーションを起票しました");
           }
-          showNotification("エスカレーションを更新しました");
-        } else {
-          const newEsc = {
-            id: "ESC" + Date.now().toString(36).toUpperCase(),
-            ...formData,
-            createdByName: userProfile.value.name,
-            createdByRole: userProfile.value.role,
-            logs: [],
-            createdAt: new Date().toISOString().slice(0, 10),
-            updatedAt: new Date().toISOString().slice(0, 10),
-          };
-          escalations.value = [newEsc, ...escalations.value];
-          showNotification("エスカレーションを起票しました");
+          await loadEscalations();
+          currentEscalation.value = null;
+          view.value = "escalation-list";
+        } catch (error) {
+          showNotification(error.message || "エスカレーションの保存に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
         }
-        view.value = "escalation-list";
       }
 
-      function addEscalationLog(logText) {
+      async function addEscalationLog(logText) {
         if (!currentEscalation.value || !userProfile.value) return;
-        const newLog = {
-          logId: "LOG" + Date.now().toString(36).toUpperCase(),
-          logText: logText,
-          authorName: userProfile.value.name,
-          createdAt: new Date().toISOString().slice(0, 10),
-        };
-        const esc = escalations.value.find(function (e) { return e.id === currentEscalation.value.id; });
-        if (esc) {
-          esc.logs = [...(esc.logs || []), newLog];
-          esc.updatedAt = new Date().toISOString().slice(0, 10);
-          currentEscalation.value = { ...esc };
+        loading.value = true;
+        try {
+          await api.addEscalationLog(currentEscalation.value.escalationId, logText);
+          currentEscalation.value = mapEscalationDetail(
+            await api.escalationDetail(currentEscalation.value.escalationId),
+            currentEscalation.value,
+            isMaskedRole(userProfile.value.role)
+          );
+          await loadEscalations();
+          showNotification("対応ログを追記しました");
+        } catch (error) {
+          showNotification(error.message || "対応ログの追加に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
         }
-        showNotification("対応ログを追記しました");
       }
 
       onMounted(async function () {
-        try {
-          await initAuth();
-          onAuthChanged(async function (authUser) {
-            user.value = authUser;
-            if (!authUser) {
-              loading.value = false;
-              refreshIcons();
-              return;
-            }
+        registerSessionExpiredHandler(function () {
+          handleLogout(true, "セッションの有効期限が切れました。再度ログインしてください。");
+        });
 
-            userProfile.value = await getProfile(authUser.uid);
-            loading.value = false;
-            refreshIcons();
-          });
-        } catch (e) {
+        if (!window.localStorage.getItem(AUTH_TOKEN_KEY)) {
           loading.value = false;
-          showNotification("認証初期化に失敗しました");
+          refreshIcons();
+          return;
         }
-      });
 
-      watch([user, userProfile], function (values) {
-        const authUser = values[0];
-        const profile = values[1];
-
-        if (unwatchReports) {
-          unwatchReports();
-          unwatchReports = null;
+        try {
+          await restoreSession();
+        } catch (e) {
+          clearSession(e.message || "ログイン状態を復元できませんでした");
+        } finally {
+          loading.value = false;
+          refreshIcons();
         }
-        if (!authUser || !profile) return;
-
-        initEscalations(profile);
-
-        unwatchReports = subscribeReports(
-          function (allReports) {
-            reports.value = applyScopeFilter(allReports, profile, authUser).sort(function (a, b) {
-              return b.month.localeCompare(a.month);
-            });
-            refreshIcons();
-          },
-          function () {
-            showNotification("一覧の取得に失敗しました");
-          },
-        );
       });
 
       watch(view, function () {
@@ -1167,22 +1221,18 @@
 
       const stats = computed(function () {
         return {
-          total: reports.value.length,
-          pending: reports.value.filter(function (report) {
-            return report.authorId !== (user.value && user.value.uid) && !report.adminFeedback;
-          }).length,
+          total: dashboardSummary.value.totalReports || 0,
+          pending: dashboardSummary.value.pendingFeedbackCount || 0,
         };
       });
 
       const isHighRank = computed(function () {
-        return userProfile.value && (userProfile.value.role === "OM" || userProfile.value.role === "GL");
+        return userProfile.value && ["GL", "OM", "SM", "SA"].includes(userProfile.value.role);
       });
 
       const canEscalate = computed(function () {
-        return userProfile.value && ROLES[userProfile.value.role] && ROLES[userProfile.value.role].rank >= 1;
+        return userProfile.value && isEscalationRole(userProfile.value.role);
       });
-
-      const currentMonthStr = new Date().toISOString().slice(0, 7);
 
       const daysUntilDeadline = computed(function () {
         const today = new Date();
@@ -1192,36 +1242,18 @@
       });
 
       const isSelfSubmitted = computed(function () {
-        if (!user.value) return false;
+        if (!userProfile.value) return false;
         return reports.value.some(function (r) {
-          return r.month === currentMonthStr && r.authorId === user.value.uid;
+          return r.month === currentMonthStr && r.reporterId === userProfile.value.employeeId;
         });
       });
 
       const unsubmittedMembers = computed(function () {
-        if (!userProfile.value || ROLES[userProfile.value.role].rank === 0) return [];
-        const scope = Object.values(MOCK_API_DATA).filter(function (u) {
-          if (userProfile.value.role === "OM") return true;
-          if (userProfile.value.role === "GL") return u.office === userProfile.value.office;
-          if (userProfile.value.role === "TL") return u.team === userProfile.value.team;
-          return false;
-        }).filter(function (u) { return ROLES[u.role] && ROLES[u.role].rank === 0; });
-        const submitted = new Set(
-          reports.value.filter(function (r) { return r.month === currentMonthStr; }).map(function (r) { return r.reporterId; })
-        );
-        return scope.filter(function (u) { return !submitted.has(u.employeeId); });
+        return dashboardSummary.value.unsubmittedMembers || [];
       });
 
       const submissionRate = computed(function () {
-        if (!userProfile.value || ROLES[userProfile.value.role].rank === 0) return 100;
-        const scope = Object.values(MOCK_API_DATA).filter(function (u) {
-          if (userProfile.value.role === "OM") return true;
-          if (userProfile.value.role === "GL") return u.office === userProfile.value.office;
-          if (userProfile.value.role === "TL") return u.team === userProfile.value.team;
-          return false;
-        }).filter(function (u) { return ROLES[u.role] && ROLES[u.role].rank === 0; });
-        if (scope.length === 0) return 100;
-        return Math.round(((scope.length - unsubmittedMembers.value.length) / scope.length) * 100);
+        return dashboardSummary.value.submissionRate || 0;
       });
 
       return {
@@ -1262,7 +1294,7 @@
       <div class="screen-shell">
         <div v-if="loading" class="loading-screen">
           <div class="loading-spinner"><i data-lucide="loader-2" class="icon-xl"></i></div>
-          <p class="loading-text">Connecting to Database</p>
+          <p class="loading-text">Loading Application</p>
         </div>
 
         <LoginView v-else-if="!userProfile" :loading="loading" @login="handleLogin" />

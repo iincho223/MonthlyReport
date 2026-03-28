@@ -78,7 +78,24 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 - `overtimeHours`: `0-300`
 - `condition`: 許容値 `OK/WARN/NG` (UI表現の `○/△/×` はAPI境界でマッピング)
 
-### 4.5 監査項目
+### 4.5 フロントエンド HTTP クライアント
+
+- フロントエンド（プロトタイプ）からの API 通信には **axios** を使用する。
+- ネイティブ `fetch` / `XMLHttpRequest` の直接使用は禁止する。
+- axios インスタンスは以下の構成で一元定義する。
+  - `baseURL`: `/api/v1`
+  - `headers`: `{ "Content-Type": "application/json" }`
+- **リクエストインターセプター**: `localStorage` から `authToken` を取得し、`Authorization: Bearer <token>` ヘッダを付与する。
+- **レスポンスインターセプター**:
+  - `resultStatus !== "0"` の場合は `new Error(resultMsg)` を reject する。
+  - 正常時は `response.data.params` を resolve する（`ApiResponse` のアンラップ）。
+  - HTTP 401 の場合はログアウト処理（`handleLogout`）を呼び出す。
+- 各サービスモジュール（`reportService.js` 等）は axios インスタンスが resolve した `params` のみを受け取り、`ApiResponse` 構造に直接依存しない。
+- スタンドアロン版 (`app.standalone.js`) では CDN の `<script>` タグで axios を読み込む。
+  - URL: `https://cdn.jsdelivr.net/npm/axios@1.x/dist/axios.min.js`
+- モジュール版では `doc/prototype/js/services/apiClient.js` に axios インスタンスを集約する。
+
+### 4.6 監査項目
 
 全トランザクション系テーブルに以下を保持する。
 

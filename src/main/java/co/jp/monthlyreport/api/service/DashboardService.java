@@ -53,7 +53,7 @@ public class DashboardService {
     result.put(ResponseKeys.SUBMITTED_COUNT, (int) submitted);
 
     // TL 以上のみ提出率・未提出メンバー一覧を返却する。
-    if (user.role() != UserRole.REPORTER) {
+    if (user.role() != UserRole.NG && user.role() != UserRole.TM) {
       result.put(ResponseKeys.SUBMISSION_RATE, calcSubmissionRate(user, month, scoped));
       result.put(ResponseKeys.UNSUBMITTED_MEMBERS, calcUnsubmittedMembers(user, month, scoped));
     } else {

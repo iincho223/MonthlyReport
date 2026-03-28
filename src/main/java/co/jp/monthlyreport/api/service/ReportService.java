@@ -311,9 +311,17 @@ public class ReportService {
    * @return 閲覧可否
    */
   private boolean canView(AuthUser user, ReportRecord report) {
-    // OM は全件参照可能。
-    if (user.role() == UserRole.OM) {
+    // NG はすべての月報を閲覧不可。
+    if (user.role() == UserRole.NG) {
+      return false;
+    }
+    // SA/OM は全件参照可能（SA はフロントエンドで内容をマスク表示）。
+    if (user.role() == UserRole.SA || user.role() == UserRole.OM) {
       return true;
+    }
+    // SM は同一オフィスの全件参照可能。
+    if (user.role() == UserRole.SM) {
+      return report.getOfficeCode().equals(user.officeCode());
     }
     // GL は同一オフィスまたは本人投稿のみ参照可能。
     if (user.role() == UserRole.GL) {
@@ -323,7 +331,7 @@ public class ReportService {
     if (user.role() == UserRole.TL) {
       return report.getAuthorUserId().equals(user.userId()) || report.getTeamCode().equals(user.teamCode());
     }
-    // メンバーは本人投稿のみ参照可能。
+    // TM/SP は本人投稿のみ参照可能。
     return report.getAuthorUserId().equals(user.userId());
   }
 

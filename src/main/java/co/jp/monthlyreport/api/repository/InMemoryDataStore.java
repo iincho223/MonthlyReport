@@ -34,7 +34,7 @@ public class InMemoryDataStore {
     registerUser(buildUser(1001L, "EMP001", "田中 太郎", "pass", UserRole.OM, "TOKYO", "HQ"));
     registerUser(buildUser(1002L, "EMP002", "鈴木 一郎", "pass", UserRole.GL, "OSAKA", "SALES_WEST"));
     registerUser(buildUser(1003L, "EMP003", "佐藤 花子", "pass", UserRole.TL, "TOKYO", "TEAM_A"));
-    registerUser(buildUser(1004L, "EMP004", "山田 健太", "pass", UserRole.REPORTER, "TOKYO", "TEAM_A"));
+    registerUser(buildUser(1004L, "EMP004", "山田 健太", "pass", UserRole.TM, "TOKYO", "TEAM_A"));
 
     // 初期月報データを 1 件投入する。
     ReportRecord seed = new ReportRecord();
@@ -50,7 +50,7 @@ public class InMemoryDataStore {
     seed.setAuthorUserId(1004L);
     seed.setReporterName("山田 健太");
     seed.setReporterId("EMP004");
-    seed.setAuthorRole(UserRole.REPORTER);
+    seed.setAuthorRole(UserRole.TM);
     seed.setOfficeCode("TOKYO");
     seed.setTeamCode("TEAM_A");
     seed.setConditions(Map.of(

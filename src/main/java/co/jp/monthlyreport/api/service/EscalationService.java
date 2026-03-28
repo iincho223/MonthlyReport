@@ -109,7 +109,7 @@ public class EscalationService {
         .map(log -> {
           Map<String, Object> entry = new HashMap<>();
           entry.put(ResponseKeys.LOG_ID, log.getLogId());
-          entry.put("date", log.getCreatedAt().toString());
+          entry.put(ResponseKeys.LOG_DATE, log.getCreatedAt().toString());
           entry.put(ResponseKeys.AUTHOR_NAME, log.getAuthorName());
           entry.put(ResponseKeys.LOG_TEXT, log.getLogText());
           return entry;
@@ -141,7 +141,8 @@ public class EscalationService {
    */
   public Map<String, Object> create(AuthUser user, EscalationCreateRequest request) {
     // 起票は TL 以上のみ許可する。
-    if (user.role() == UserRole.REPORTER) {
+    // 起票は TL 以上のみ許可する（NG・TM は不可）。
+    if (!user.role().canAccessEscalation()) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.ESC_NO_CREATE_PERMISSION));
     }
     validateSeverity(request.severity());
@@ -232,12 +233,12 @@ public class EscalationService {
   }
 
   /**
-   * ロール別アクセス可否を確認する（REPORTER は403）。
+   * ロール別アクセス可否を確認する（NG / TM は403）。
    *
    * @param user 認証ユーザー
    */
   private void requireEscalationAccess(AuthUser user) {
-    if (user.role() == UserRole.REPORTER) {
+    if (!user.role().canAccessEscalation()) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.ESC_NO_ACCESS_PERMISSION));
     }
   }
@@ -278,11 +279,18 @@ public class EscalationService {
    * @return 閲覧可否
    */
   private boolean canView(AuthUser user, EscalationRecord esc) {
-    if (user.role() == UserRole.OM) return true;
+    // SA/OM は全件参照可能（SA はフロントエンドで内容をマスク表示）。
+    if (user.role() == UserRole.SA || user.role() == UserRole.OM) return true;
+    // SM は同一オフィスの全件参照可能。
+    if (user.role() == UserRole.SM) return user.officeCode().equals(esc.getOfficeCode());
     if (user.role() == UserRole.GL) return user.officeCode().equals(esc.getOfficeCode());
-    // TL は自チームの案件 + 自分が起票した案件
+    // TL は自チームの案件 + 自分が起票した案件。
     if (user.role() == UserRole.TL) {
       return user.teamCode().equals(esc.getTeamCode()) || user.userId().equals(esc.getCreatedBy());
+    }
+    // SP: 担当エスカレーション（担当者フィールド未実装のため起票者で代替）。
+    if (user.role() == UserRole.SP) {
+      return user.userId().equals(esc.getCreatedBy());
     }
     return false;
   }
@@ -295,9 +303,12 @@ public class EscalationService {
    * @return 更新可否
    */
   private boolean canUpdate(AuthUser user, EscalationRecord esc) {
-    if (user.role() == UserRole.OM || user.role() == UserRole.GL) return true;
-    // TL は起票者本人またはスコープ内（canView が true であれば更新も許可）
+    if (user.role() == UserRole.SA || user.role() == UserRole.SM
+      || user.role() == UserRole.OM || user.role() == UserRole.GL) return true;
+    // TL は起票者本人またはスコープ内（canView が true であれば更新も許可）。
     if (user.role() == UserRole.TL) return canView(user, esc);
+    // SP は担当エスカレーション（canView が true であれば更新も許可）。
+    if (user.role() == UserRole.SP) return canView(user, esc);
     return false;
   }
 
