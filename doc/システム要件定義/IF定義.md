@@ -80,7 +80,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
     "userId": 1004,
     "employeeNo": "EMP004",
     "name": "山田 健太",
-    "role": "REPORTER",
+    "role": "TM",
     "officeCode": "TOKYO",
     "teamCode": "TEAM_A"
   }
@@ -195,7 +195,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 
 ## 7. 連携上の注意事項
 
-- 画面の `○/△/×` はIF境界で `OK/WARN/NG` に変換する。
+- 画面の `◎/○/▲/×` はIF境界で `BEST/GOOD/WARN/NG` に変換する。
 - 一覧の表示範囲はサーバ側でロールに応じて制御し、クライアント側での絞り込みは補助用途のみとする。
 - API 失敗時は axios レスポンスインターセプターが `resultMsg` を message とする `Error` に変換する。画面層は `error.message` をトーストで表示する（`ApiResponse` 層を直接参照しない）。
 - HTTP 401 は axios インターセプターが共通実装する。画面層ほどの個別対応不要。

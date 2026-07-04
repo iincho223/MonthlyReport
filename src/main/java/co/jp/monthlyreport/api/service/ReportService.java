@@ -5,6 +5,7 @@ import co.jp.monthlyreport.api.common.BusinessException;
 import co.jp.monthlyreport.api.common.ErrorCodes;
 import co.jp.monthlyreport.api.common.MessageKeys;
 import co.jp.monthlyreport.api.common.ResponseKeys;
+import co.jp.monthlyreport.api.common.ValidationConstants;
 import co.jp.monthlyreport.api.dto.request.FeedbackUpdateRequest;
 import co.jp.monthlyreport.api.dto.request.ReportCreateRequest;
 import co.jp.monthlyreport.api.dto.request.ReportSearchRequest;
@@ -12,7 +13,9 @@ import co.jp.monthlyreport.api.dto.request.ReportUpdateRequest;
 import co.jp.monthlyreport.api.model.ReportRecord;
 import co.jp.monthlyreport.api.model.UserRole;
 import co.jp.monthlyreport.api.repository.InMemoryDataStore;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -248,6 +251,14 @@ public class ReportService {
     // 自分自身の月報への回答は禁止。
     if (report.getAuthorUserId().equals(user.userId())) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.REPORT_FEEDBACK_SELF));
+    }
+
+    // フィードバック期限チェック: 報告月の翌月 DEADLINE_DAY 日を過ぎた場合は不可。
+    LocalDate deadline = YearMonth.parse(report.getMonth())
+        .plusMonths(1)
+        .atDay(ValidationConstants.DEADLINE_DAY);
+    if (LocalDate.now().isAfter(deadline)) {
+      throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.REPORT_FEEDBACK_EXPIRED));
     }
 
     report.setFeedbackComment(request.feedbackComment());

@@ -22,6 +22,15 @@
 - API-14: エスカレーション作成 (`POST /api/v1/escalations/create`)
 - API-15: エスカレーション更新 (`POST /api/v1/escalations/update`)
 - API-16: 対応ログ追加 (`POST /api/v1/escalations/log/add`)
+- API-17: ユーザー一覧検索 (`POST /api/v1/users/search`)
+- API-18: ユーザー登録 (`POST /api/v1/users/create`)
+- API-19: ユーザー削除 (`POST /api/v1/users/delete`)
+- API-20: グループ一覧検索 (`POST /api/v1/groups/search`)
+- API-21: グループ登録 (`POST /api/v1/groups/create`)
+- API-22: グループ削除 (`POST /api/v1/groups/delete`)
+- API-23: チーム一覧検索 (`POST /api/v1/teams/search`)
+- API-24: チーム登録 (`POST /api/v1/teams/create`)
+- API-25: チーム削除 (`POST /api/v1/teams/delete`)
 
 ## 3 共通仕様
 

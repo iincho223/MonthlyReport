@@ -1,33 +1,76 @@
 # API-08 月報作成
 
+## 0 目次
+
+1. [基本情報](#1-基本情報)
+2. [概要](#2-概要)
+3. [前提条件](#3-前提条件)
+4. [入出力仕様](#4-入出力仕様)
+5. [ロジックフロー](#5-ロジックフロー)
+6. [例外ケース](#6-例外ケース)
+7. [CRUD](#7-crud)
+
+---
+
 ## 1 基本情報
 
 - API ID: API-08
 - 名称: 月報作成
 - Method/URI: `POST /api/v1/reports/create`
 - 認証: 必須
+- アクセス可能ロール: **TM 以上**（NG は不可）
 
-## 2 目的
+## 2 概要
 
-月報を新規登録する。
+月報を新規登録する。同一ユーザーの同一月の月報（有効データ）は 1 件のみ登録平。
+登録時の所属情報を `reports.office_code/team_code` にスナップショット保存する。
 
-## 3 リクエスト
+## 3 前提条件
 
-`API仕様書.md` の `POST /reports/create` に準拠。
+- 認証済み JWT が有効であること。
+- ログインユーザーのロールが TM 以上であること。
 
-## 4 バリデーション
+## 4 入出力仕様
 
-- `month`: 必須 `yyyy-MM`
-- `title`: 必須 最大100
-- `overtimeHours`: 0-300
-- `conditions`: 全項目必須 `BEST/GOOD/WARN/NG`
+### 4.1 Request
 
-## 5 業務ルール
+```json
+{
+  "month": "2026-03",
+  "title": "今月の業務報告",
+  "salesInfo": "特になし",
+  "nextMonthOvertimeHours": 20,
+  "nextMonthOvertimeReason": "案件リリース対応",
+  "thisMonthOvertimeHours": 18,
+  "thisMonthOvertimeReason": "障害調査",
+  "conditions": {
+    "physical": "GOOD",
+    "stress": "WARN",
+    "relationships": "GOOD",
+    "worries": "WARN",
+    "fatigue": "NG",
+    "sleep": "WARN",
+    "motivation": "GOOD"
+  },
+  "comments": "相談事項あり"
+}
+```
 
-- 同一ユーザーの同一月報(有効データ)は登録不可。
-- 登録時の所属情報を `reports.office_code/team_code` にスナップショット保存する。
+### 4.2 Request バリデーション
 
-## 6 正常レスポンス(params)
+| 項目 | 必須 | ルール |
+|---|---|---|
+| month | 必須 | `yyyy-MM` 形式 |
+| title | 必須 | 最大100文字 |
+| salesInfo | 任意 | 最大500文字 |
+| nextMonthOvertimeHours | 任意 | 0−3000（单位: 時間） |
+| nextMonthOvertimeReason | 任意 | 最大255文字 |
+| thisMonthOvertimeHours | 任意 | 0−3000（単位: 時間） |
+| thisMonthOvertimeReason | 任意 | 最大255文字 |
+| conditions | 必須 | 全 7 項目必須、06BEST/GOOD/WARN/NG` のみ |
+| comments | 任意 | 最大500文字 |
+
+### 4.3 Response(params)
 
 ```json
 {
@@ -35,14 +78,30 @@
 }
 ```
 
-## 7 エラー
+## 5 ロジックフロー
 
-- `REPORT_409`: 同月重複
-- `VAL_001`: 入力不正
+1. JWT からログインユーザーの情報を取得する。
+2. ダブル登録チェックを行う（`author_user_id + report_month + delete_flag=0`）。
+   - 同月の月報が存在する場合は、以下の処理を実行する。
+     - `REPORT_409` を返す。
+   - 存在しない場合は、以下の処理を実行する。
+     - 次のステップに進む。
+3. `reports` テーブルに登録する（`office_code/team_code` をスナップショット保存）。
+4. `report_conditions` テーブルに登録する。
+5. トランザクションをコミットする。
+6. 生成した `reportId` を返却する。
 
-## 8 主処理
+## 6 例外ケース
 
-1. 重複チェック (`author_user_id + report_month + delete_flag=0`)
-2. `reports` 登録
-3. `report_conditions` 登録
-4. トランザクションコミット
+| ケース | エラーコード | 説明 |
+|---|---|---|
+| 未認証 | `AUTH_001` | ログインしてください |
+| 同月重複 | `REPORT_409` | 同月の月報が存在します |
+| 入力不正 | `VAL_001` | 入力値を確認してください |
+
+## 7 CRUD
+
+| テーブル | 操作 |
+|---|---|
+| reports | INSERT |
+| report_conditions | INSERT |

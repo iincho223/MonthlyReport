@@ -48,6 +48,9 @@ public class EscalationRecord {
   /** 起票者ロール */
   private String createdByRole;
 
+  /** 担当者ユーザーID（SP ロールのスコープ判定用） */
+  private Long assigneeUserId;
+
   /** 起票者の拠点コード（スコープ判定用） */
   private String officeCode;
 

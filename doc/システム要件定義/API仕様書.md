@@ -81,7 +81,7 @@
     "userId": 1004,
     "employeeNo": "EMP004",
     "name": "山田 健太",
-    "role": "REPORTER",
+    "role": "TM",
     "officeCode": "TOKYO",
     "teamCode": "TEAM_A"
   }
@@ -145,7 +145,7 @@
   "userId": 1004,
   "employeeNo": "EMP004",
   "name": "山田 健太",
-  "role": "REPORTER",
+  "role": "TM",
   "officeCode": "TOKYO",
   "teamCode": "TEAM_A"
 }
@@ -181,7 +181,7 @@
 }
 ```
 
-> `submissionRate` と `unsubmittedMembers` はTL以上のロールのみ返却。REPORTERは空配列・0%。
+> `submissionRate` と `unsubmittedMembers` はTL以上のロールのみ返却。TM/NG は空配列・0%。
 
 ## 3.4 月報API
 
@@ -214,7 +214,7 @@
       "title": "今月の業務報告",
       "reporterName": "山田 健太",
       "reporterId": "EMP004",
-      "authorRole": "REPORTER",
+      "authorRole": "TM",
       "officeCode": "TOKYO",
       "teamCode": "TEAM_A",
       "feedbackRegistered": false,
@@ -265,7 +265,7 @@
   "author": {
     "employeeNo": "EMP004",
     "name": "山田 健太",
-    "role": "REPORTER",
+    "role": "TM",
     "officeCode": "TOKYO",
     "teamCode": "TEAM_A"
   },
@@ -412,7 +412,7 @@
 
 ## 3.6 エスカレーションAPI
 
-> **アクセス可能ロール**: TL・GL・OMのみ。REPORTERは全APIへのアクセス不可。
+> **アクセス可能ロール**: TL・GL・OMのみ。NG・TM は全APIへのアクセス不可。
 
 ### 3.6.1 POST `/escalations/search`
 
@@ -572,6 +572,265 @@
 }
 ```
 
+## 3.7 ユーザー管理API
+
+> **アクセス可能ロール**: GL・OM・SP・SM・SA のみ。それ以外は全APIへのアクセス不可。
+
+### 3.7.1 POST `/users/search`
+
+#### 概要
+
+ユーザー一覧を検索する。ロールに応じた参照スコープをサーバーで強制する。
+
+#### Request
+
+```json
+{
+  "role": "TM",
+  "officeCode": "TOKYO",
+  "page": 1,
+  "size": 20
+}
+```
+
+#### Response(params)
+
+```json
+{
+  "items": [
+    {
+      "userId": 1004,
+      "employeeNo": "EMP004",
+      "name": "山田 健太",
+      "role": "TM",
+      "officeCode": "TOKYO",
+      "teamCode": "TEAM_A"
+    }
+  ],
+  "paging": {
+    "page": 1,
+    "size": 20,
+    "totalElements": 1,
+    "totalPages": 1
+  }
+}
+```
+
+### 3.7.2 POST `/users/create`
+
+#### 業務ルール
+
+- GL は自グループおよび自グループ配下チームへエンジニアのみ登録可。
+- OM は自営業所の全グループ・チームへエンジニアを登録可。
+- SP・SM は所属営業所にエンジニア・SP・SM のユーザーを登録可。
+- SA は全ユーザーを登録可。
+
+#### Request
+
+```json
+{
+  "employeeNo": "EMP010",
+  "name": "新規 ユーザー",
+  "role": "TM",
+  "officeCode": "TOKYO",
+  "teamCode": "TEAM_A",
+  "password": "initialPass"
+}
+```
+
+#### Response(params)
+
+```json
+{
+  "userId": 1010,
+  "employeeNo": "EMP010"
+}
+```
+
+### 3.7.3 POST `/users/delete`
+
+#### 業務ルール
+
+- 自分自身のアカウントは削除不可。
+- 各ロールの削除可能スコープは登録と同じ。
+
+#### Request
+
+```json
+{
+  "userId": 1010
+}
+```
+
+#### Response(params)
+
+```json
+{
+  "userId": 1010,
+  "deleted": true
+}
+```
+
+## 3.8 グループ管理API
+
+> **アクセス可能ロール**: OM（全グループ）・GL（自グループのチームのみ）・SA のみ。
+
+### 3.8.1 POST `/groups/search`
+
+#### 概要
+
+グループ一覧を検索する。
+
+#### Request
+
+```json
+{
+  "officeCode": "TOKYO"
+}
+```
+
+#### Response(params)
+
+```json
+{
+  "items": [
+    {
+      "groupCode": "GROUP_A",
+      "groupName": "グループA",
+      "officeCode": "TOKYO",
+      "glName": "グループリーダー名"
+    }
+  ]
+}
+```
+
+### 3.8.2 POST `/groups/create`
+
+#### 業務ルール
+
+- グループ登録時、GL に指定するユーザーを必須とする。
+- OM は自営業所にグループを追加可。SA は全営業所に追加可。
+
+#### Request
+
+```json
+{
+  "groupCode": "GROUP_B",
+  "groupName": "グループB",
+  "officeCode": "TOKYO",
+  "glUserId": 1005
+}
+```
+
+#### Response(params)
+
+```json
+{
+  "groupCode": "GROUP_B"
+}
+```
+
+### 3.8.3 POST `/groups/delete`
+
+#### 業務ルール
+
+- GL はグループ自体の削除は不可（チームの追加・削除のみ可）。
+
+#### Request
+
+```json
+{
+  "groupCode": "GROUP_B"
+}
+```
+
+#### Response(params)
+
+```json
+{
+  "groupCode": "GROUP_B",
+  "deleted": true
+}
+```
+
+## 3.9 チーム管理API
+
+> **アクセス可能ロール**: GL（自グループ配下）・OM（全チーム）・SA のみ。
+
+### 3.9.1 POST `/teams/search`
+
+#### 概要
+
+チーム一覧を検索する。
+
+#### Request
+
+```json
+{
+  "groupCode": "GROUP_A"
+}
+```
+
+#### Response(params)
+
+```json
+{
+  "items": [
+    {
+      "teamCode": "TEAM_A",
+      "teamName": "チームA",
+      "groupCode": "GROUP_A",
+      "tlName": "チームリーダー名"
+    }
+  ]
+}
+```
+
+### 3.9.2 POST `/teams/create`
+
+#### 業務ルール
+
+- チーム登録時、TL に指定するユーザーを必須とする。
+- GL は自グループ配下にチームを追加可。OM は全グループに追加可。SA は全権限。
+
+#### Request
+
+```json
+{
+  "teamCode": "TEAM_B",
+  "teamName": "チームB",
+  "groupCode": "GROUP_A",
+  "tlUserId": 1006
+}
+```
+
+#### Response(params)
+
+```json
+{
+  "teamCode": "TEAM_B"
+}
+```
+
+### 3.9.3 POST `/teams/delete`
+
+#### Request
+
+```json
+{
+  "teamCode": "TEAM_B"
+}
+```
+
+#### Response(params)
+
+```json
+{
+  "teamCode": "TEAM_B",
+  "deleted": true
+}
+```
+
 ## 4. バリデーション仕様
 
 | 項目 | ルール |
@@ -589,6 +848,15 @@
 | escalation.severity | `LOW/MEDIUM/HIGH` のみ |
 | escalation.status | `PENDING/ONGOING/RESOLVED` のみ |
 | escalation.logText | 必須 |
+| user.employeeNo | 必須、英数字、最大20文字 |
+| user.name | 必須 |
+| user.password | 必須、最大128文字 |
+| group.groupCode | 必須、英数字 |
+| group.groupName | 必須 |
+| group.glUserId | 必須（グループ登録時） |
+| team.teamCode | 必須、英数字 |
+| team.teamName | 必須 |
+| team.tlUserId | 必須（チーム登録時） |
 
 ## 5. 権限仕様
 
@@ -596,7 +864,8 @@
 
 | ロール | 一覧参照範囲 | 月報更新 | 回答更新 | 削除 |
 |---|---|---|---|---|
-| REPORTER | 自分のみ | 自分のみ | 不可 | 自分のみ |
+| NG | 不可 | 不可 | 不可 | 不可 |
+| TM | 自分のみ | 自分のみ | 不可 | 自分のみ |
 | TL | 自分+同一チーム | 自分のみ | 可(他者のみ) | 自分のみ |
 | GL | 自分+同一営業所 | 自分のみ | 可(他者のみ) | 自分のみ |
 | OM | 全件 | 自分のみ | 可(他者のみ) | 全件 |
@@ -605,12 +874,30 @@
 
 | ロール | 一覧参照範囲 | 起票 | 更新 | ログ追加 |
 |---|---|---|---|---|
-| REPORTER | 不可 | 不可 | 不可 | 不可 |
+| NG / TM | 不可 | 不可 | 不可 | 不可 |
 | TL | 自チーム+自分起票分 | 可 | 可(可視範囲内) | 可 |
 | GL | 自営業所全件 | 可 | 可 | 可 |
 | OM | 全件 | 可 | 可 | 可 |
 
-## 6. エラー仕様
+### ユーザー管理
+
+| ロール | ユーザー登録 | ユーザー削除 | ユーザー一覧参照 |
+|---|---|---|---|
+| NG / TM / TL | 不可 | 不可 | 不可 |
+| GL | 自グループ配下にエンジニア | 同左 | 可 |
+| OM | 自営業所全体 | 同左 | 可 |
+| SP / SM | エンジニア・SP・SM | 同左 | 可 |
+| SA | 全ユーザー | 同左 | 可 |
+
+### 組織管理（グループ・チーム）
+
+| ロール | グループ登録 | グループ削除 | チーム登録 | チーム削除 |
+|---|---|---|---|---|
+| NG / TM / TL | 不可 | 不可 | 不可 | 不可 |
+| GL | 不可 | 不可 | 自グループ配下のみ | 同左 |
+| OM | 自営業所 | 自営業所 | 自営業所内全体 | 同左 |
+| SP / SM | 不可 | 不可 | 不可 | 不可 |
+| SA | 全権限 | 全権限 | 全権限 | 全権限 |
 
 | ケース | HTTP | resultCd | メッセージ例 |
 |---|---|---|---|
@@ -620,9 +907,13 @@
 | 対象なし(エスカレ) | 404 | ESC_404 | 対象のエスカレーションが存在しません |
 | 重複登録 | 409 | REPORT_409 | 同一月の月報は既に存在します |
 | 入力不正 | 400 | VAL_001 | 入力値を確認してください |
-| 予期しない障害 | 500 | SYS_500 | システムエラーが発生しました |
-
-## 7. プロトタイプ動作との対応
+| 対象なし(ユーザー) | 404 | USER_404 | 対象のユーザーが存在しません |
+| 対象なし(グループ) | 404 | GROUP_404 | 対象のグループが存在しません |
+| 対象なし(チーム) | 404 | TEAM_404 | 対象のチームが存在しません |
+| ユーザー重複 | 409 | USER_409 | 同じ社員番号が存在します |
+| 重複登録(グループ) | 409 | GROUP_409 | 同じグループコードが存在します |
+| 重複登録(チーム) | 409 | TEAM_409 | 同じチームコードが存在します |
+| 自分自身削除 | 400 | USER_400 | 自分自身のアカウントは削除できません |
 
 以下の画面操作はすべて axios インスタンス経由で API を呼び出す。
 
@@ -639,4 +930,12 @@
 - エスカレーション編集/ステータス更新 -> `/escalations/update`
 - 対応ログ追記 -> `/escalations/log/add`
 
-上記により、画面要件の操作感を維持しつつ、Spring Boot + MariaDBの業務APIとして実装可能な仕様とする。
+- ユーザー一覧 -> `/users/search`
+- ユーザー登録 -> `/users/create`
+- ユーザー削除 -> `/users/delete`
+- グループ一覧 -> `/groups/search`
+- グループ登録 -> `/groups/create`
+- グループ削除 -> `/groups/delete`
+- チーム一覧 -> `/teams/search`
+- チーム登録 -> `/teams/create`
+- チーム削除 -> `/teams/delete`

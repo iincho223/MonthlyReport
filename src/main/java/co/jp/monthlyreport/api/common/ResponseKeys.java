@@ -161,6 +161,8 @@ public final class ResponseKeys {
   public static final String LOG_TEXT = "text";
   /** ログ追加フラグ */
   public static final String LOG_ADDED = "logAdded";
+  /** 担当者ユーザーID */
+  public static final String ASSIGNEE_USER_ID = "assigneeUserId";
 
   // インスタンス化禁止
   private ResponseKeys() {}

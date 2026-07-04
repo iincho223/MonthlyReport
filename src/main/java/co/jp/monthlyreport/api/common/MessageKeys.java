@@ -50,6 +50,8 @@ public final class MessageKeys {
   public static final String REPORT_CONDITIONS_MISSING_KEY = "error.report.conditions_missing_key";
   /** conditions 値不正 */
   public static final String REPORT_CONDITIONS_INVALID_VALUE = "error.report.conditions_invalid_value";
+  /** フィードバック期限切れ */
+  public static final String REPORT_FEEDBACK_EXPIRED = "error.report.feedback_expired";
 
   // -------------------------------------------------------------------------
   // エスカレーションエラー (ESCALATION)

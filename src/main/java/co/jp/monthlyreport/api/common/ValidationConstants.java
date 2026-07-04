@@ -64,6 +64,13 @@ public final class ValidationConstants {
   /** 対応ログの最大文字数 */
   public static final int MAX_ESC_LOG_TEXT = 2000;
 
+  // ---------------------------------------------------------------------------
+  // 提出・フィードバック期限
+  // ---------------------------------------------------------------------------
+
+  /** フィードバック・提出締切日（毎月 N 日） */
+  public static final int DEADLINE_DAY = 5;
+
   // インスタンス化禁止
   private ValidationConstants() {}
 }

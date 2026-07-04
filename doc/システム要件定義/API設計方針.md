@@ -23,8 +23,9 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 - 社員番号 + パスワードで認証
 - ロール/所属(営業所・チーム)を取得
 - 月報一覧
-- ロールに応じた閲覧範囲制御
-- REPORTER: 自分の月報のみ
+- ロールに応じた閲覧範囲制御（詳細は `業務仕様書.md` 参照）
+- NG: アクセス不可
+- TM: 自分の月報のみ
 - TL: 自分 + 同一チーム
 - GL: 自分 + 同一営業所
 - OM: 全件
@@ -51,7 +52,7 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 - 公開API: `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`
 - それ以外はJWT必須。
 - 認可はロール + データスコープで制御する。
-- 例: `REPORTER` は自分の `reports` のみ更新可能。
+- 例: `TM` は自分の `reports` のみ更新可能。
 
 ### 4.3 レスポンス形式
 
@@ -76,7 +77,7 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
 - `month`: `yyyy-MM`
 - `title`: 必須、最大100文字
 - `overtimeHours`: `0-300`
-- `condition`: 許容値 `OK/WARN/NG` (UI表現の `○/△/×` はAPI境界でマッピング)
+- `condition`: 許容値 `BEST/GOOD/WARN/NG` (UI表現の `◎/○/▲/×` はAPI境界でマッピング)
 
 ### 4.5 フロントエンド HTTP クライアント
 
@@ -181,13 +182,13 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
   "thisMonthOvertimeHours": 18,
   "thisMonthOvertimeReason": "障害調査",
   "conditions": {
-    "physical": "OK",
+    "physical": "BEST",
     "stress": "WARN",
-    "relationships": "OK",
+    "relationships": "GOOD",
     "worries": "WARN",
     "fatigue": "NG",
     "sleep": "WARN",
-    "motivation": "OK"
+    "motivation": "GOOD"
   },
   "comments": "相談事項あり"
 }
@@ -203,7 +204,7 @@ UI/UXは `doc/プロトタイプデザイン.html` の画面構成と動作を�
   "author": {
     "employeeNo": "EMP004",
     "name": "山田 健太",
-    "role": "REPORTER",
+    "role": "TM",
     "officeCode": "TOKYO",
     "teamCode": "TEAM_A"
   },

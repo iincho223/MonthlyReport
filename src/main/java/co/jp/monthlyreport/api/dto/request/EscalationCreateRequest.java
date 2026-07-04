@@ -15,6 +15,7 @@ import jakarta.validation.constraints.Size;
  * @param description         詳細内容（任意、最大 {@value co.jp.monthlyreport.api.common.ValidationConstants#MAX_ESC_DESCRIPTION} 文字）
  * @param severity            重要度（LOW / MEDIUM / HIGH）
  * @param status              初期ステータス（PENDING / ONGOING / RESOLVED。省略時 PENDING）
+ * @param assigneeUserId      担当者ユーザーID（任意）
  */
 public record EscalationCreateRequest(
     @NotBlank @Size(max = ValidationConstants.MAX_ESC_TITLE) String title,
@@ -22,4 +23,5 @@ public record EscalationCreateRequest(
     @NotBlank String targetTeam,
     @Size(max = ValidationConstants.MAX_ESC_DESCRIPTION) String description,
     @NotBlank String severity,
-    String status) {}
+    String status,
+    Long assigneeUserId) {}

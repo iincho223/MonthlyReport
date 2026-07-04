@@ -170,7 +170,7 @@ erDiagram
 
 | カラム | 型 | 必須 | 説明 |
 |---|---|---|---|
-| role_code | varchar(20) | Y | `REPORTER/TL/GL/OM` |
+| role_code | varchar(20) | Y | `NG/TM/TL/GL/OM/SP/SM/SA` |
 | role_name | varchar(100) | Y | 表示名 |
 | role_rank | tinyint | Y | 権限序列 |
 | delete_flag | tinyint(1) | Y | 削除フラグ |
@@ -267,13 +267,13 @@ FK: `author_user_id -> users.user_id`
 | カラム | 型 | 必須 | 説明 |
 |---|---|---|---|
 | report_id | char(26) | Y | 月報ID |
-| physical | varchar(10) | Y | `OK/WARN/NG` |
-| stress | varchar(10) | Y | `OK/WARN/NG` |
-| relationships | varchar(10) | Y | `OK/WARN/NG` |
-| worries | varchar(10) | Y | `OK/WARN/NG` |
-| fatigue | varchar(10) | Y | `OK/WARN/NG` |
-| sleep | varchar(10) | Y | `OK/WARN/NG` |
-| motivation | varchar(10) | Y | `OK/WARN/NG` |
+| physical | varchar(10) | Y | `BEST/GOOD/WARN/NG` |
+| stress | varchar(10) | Y | `BEST/GOOD/WARN/NG` |
+| relationships | varchar(10) | Y | `BEST/GOOD/WARN/NG` |
+| worries | varchar(10) | Y | `BEST/GOOD/WARN/NG` |
+| fatigue | varchar(10) | Y | `BEST/GOOD/WARN/NG` |
+| sleep | varchar(10) | Y | `BEST/GOOD/WARN/NG` |
+| motivation | varchar(10) | Y | `BEST/GOOD/WARN/NG` |
 | delete_flag | tinyint(1) | Y | 削除フラグ |
 | updated_at | datetime(3) | Y | 更新日時 |
 | updated_by | varchar(50) | Y | 更新者 |
@@ -489,5 +489,5 @@ create table refresh_tokens (
 
 - 現行の簡易項目(社員情報、月報提出有無判定)を本設計に統合する。
 - 既存ロールコード(`KengenCd`)とのマッピングテーブルを移行時に用意する。
-- UIの `○/△/×` は保存時に `OK/WARN/NG` に変換し、取得時に逆変換する。
+- UIの `◎/○/▲/×` は保存時に `BEST/GOOD/WARN/NG` に変換し、取得時に逆変換する。
 - MariaDBへ移行するため、MySQL依存のDDL/関数利用は排除する。

@@ -18,11 +18,12 @@
 - 名称: ダッシュボード集計
 - Method/URI: `POST /api/v1/dashboard/summary`
 - 認証: 必須
+- アクセス可能ロール: **全ロール**（NG を除く）
 
 ## 2 概要
 
 ダッシュボード画面に表示する集計値（提出数・未回答件数・提出率・未提出メンバー一覧）を返却する。
-`submissionRate` および `unsubmittedMembers` はTL以上のロールのみ返却。REPORTERはそれぞれ `0` / `[]` を返却する。
+`submissionRate` および `unsubmittedMembers` はTL以上のロールのみ返却。TMはそれぞれ `0` / `[]` を返却する。
 
 ## 3 前提条件
 
@@ -65,16 +66,24 @@
 | totalReports | int | 参照スコープ内の月報合計件数 |
 | pendingFeedbackCount | int | 回答待ち件数（TL以上のみ意味あり） |
 | submittedCount | int | 今月提出済み件数 |
-| submissionRate | int | 提出率(%)。TL以上のみ、REPORTERは `0` |
-| unsubmittedMembers | array | 未提出メンバー一覧。TL以上のみ、REPORTERは `[]` |
+| submissionRate | int | 提出率(%)。TL以上のみ、TMは `0` |
+| unsubmittedMembers | array | 未提出メンバー一覧。TL以上のみ、TMは `[]` |
 
 ## 5 ロジックフロー
 
 1. JWTからログインユーザのロール/所属を取得する。
-2. `month` 未指定の場合は現在年月を適用する。
+2. `month` 指定を確認する。
+   - `month` 未指定の場合は、以下の処理を実行する。
+     - 現在年月（サーバタイムトン）を適用する。
+   - `month` 指定ありの場合は、以下の処理を実行する。
+     - 入力の `month` 値を使用する。
 3. ロール別スコープで `reports` を集計し `totalReports`/`pendingFeedbackCount` を算出する。
-4. **TL以上のみ**: スコープ内の全メンバー数と提出済み件数を比較し、`submissionRate`＆`unsubmittedMembers` を算出する。
-5. REPORTERには `submissionRate: 0, unsubmittedMembers: []` を返却する。
+4. ロールを確認する。
+   - TL 以上の場合は、以下の処理を実行する。
+     - スコープ内の全メンバー数と提出済み件数を比較し、`submissionRate` と `unsubmittedMembers` を算出する。
+   - TM の場合は、以下の処理を実行する。
+     - `submissionRate: 0, unsubmittedMembers: []` を返却する。
+5. 集計値を返却する。
 
 ## 6 例外ケース
 

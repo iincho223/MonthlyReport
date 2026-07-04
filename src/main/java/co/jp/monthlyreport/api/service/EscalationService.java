@@ -125,6 +125,7 @@ public class EscalationService {
     params.put(ResponseKeys.STATUS, esc.getStatus());
     params.put(ResponseKeys.CREATED_BY_NAME, esc.getCreatedByName());
     params.put(ResponseKeys.CREATED_BY_ROLE, esc.getCreatedByRole());
+    params.put(ResponseKeys.ASSIGNEE_USER_ID, esc.getAssigneeUserId());
     params.put(ResponseKeys.HISTORY, history);
     params.put(ResponseKeys.UPDATED_AT, esc.getUpdatedAt().toString());
     return params;
@@ -161,6 +162,7 @@ public class EscalationService {
     esc.setCreatedBy(user.userId());
     esc.setCreatedByName(user.name());
     esc.setCreatedByRole(user.role().name());
+    esc.setAssigneeUserId(request.assigneeUserId());
     esc.setOfficeCode(user.officeCode());
     esc.setTeamCode(user.teamCode());
     esc.setCreatedAt(OffsetDateTime.now());
@@ -196,6 +198,7 @@ public class EscalationService {
     esc.setDescription(request.description());
     esc.setSeverity(request.severity().toUpperCase(Locale.ROOT));
     esc.setStatus(request.status().toUpperCase(Locale.ROOT));
+    esc.setAssigneeUserId(request.assigneeUserId());
     esc.setUpdatedAt(OffsetDateTime.now());
     dataStore.saveEscalation(esc);
 
@@ -288,9 +291,9 @@ public class EscalationService {
     if (user.role() == UserRole.TL) {
       return user.teamCode().equals(esc.getTeamCode()) || user.userId().equals(esc.getCreatedBy());
     }
-    // SP: 担当エスカレーション（担当者フィールド未実装のため起票者で代替）。
+    // SP: 担当者（assigneeUserId）が自分のエスカレーションのみ参照可能。
     if (user.role() == UserRole.SP) {
-      return user.userId().equals(esc.getCreatedBy());
+      return user.userId().equals(esc.getAssigneeUserId());
     }
     return false;
   }
