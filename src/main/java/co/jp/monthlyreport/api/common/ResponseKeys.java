@@ -163,6 +163,43 @@ public final class ResponseKeys {
   public static final String LOG_ADDED = "logAdded";
   /** 担当者ユーザーID */
   public static final String ASSIGNEE_USER_ID = "assigneeUserId";
+  /** 担当者氏名 */
+  public static final String ASSIGNEE_NAME = "assigneeName";
+  /** 対応期日 */
+  public static final String DUE_DATE = "dueDate";
+  /** 完了期日 */
+  public static final String RESOLVED_DATE = "resolvedDate";
+
+  // ---------------------------------------------------------------------------
+  // グループ / チーム管理 (GroupService・TeamService)
+  // ---------------------------------------------------------------------------
+
+  /** グループコード */
+  public static final String GROUP_CODE = "groupCode";
+  /** グループ名 */
+  public static final String GROUP_NAME = "groupName";
+  /** グループ一覧配列 */
+  public static final String GROUPS = "groups";
+  /** グループリーダー(GL)ユーザーID */
+  public static final String GL_USER_ID = "glUserId";
+  /** グループリーダー(GL)氏名 */
+  public static final String GL_USER_NAME = "glUserName";
+  /** チーム名 */
+  public static final String TEAM_NAME = "teamName";
+  /** チーム一覧配列 */
+  public static final String TEAMS = "teams";
+  /** チームリーダー(TL)ユーザーID */
+  public static final String TL_USER_ID = "tlUserId";
+  /** チームリーダー(TL)氏名 */
+  public static final String TL_USER_NAME = "tlUserName";
+  /** 拠点名 */
+  public static final String OFFICE_NAME = "officeName";
+  /** グループ配下チーム数 */
+  public static final String TEAM_COUNT = "teamCount";
+  /** メンバー数 */
+  public static final String MEMBER_COUNT = "memberCount";
+  /** 検索結果総件数 */
+  public static final String TOTAL_COUNT = "totalCount";
 
   // インスタンス化禁止
   private ResponseKeys() {}

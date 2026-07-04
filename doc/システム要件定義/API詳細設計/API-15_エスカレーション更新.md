@@ -51,7 +51,10 @@ PENDING（未対応） ↔ ONGOING（対応中） ↔ RESOLVED（解決済み）
   "targetTeam": "チームA",
   "description": "長期欠勤によりチームの負荷が増加している。",
   "severity": "HIGH",
-  "status": "ONGOING"
+  "status": "ONGOING",
+  "dueDate": "2026-03-20",
+  "resolvedDate": null,
+  "assigneeUserId": 1003
 }
 ```
 
@@ -66,6 +69,9 @@ PENDING（未対応） ↔ ONGOING（対応中） ↔ RESOLVED（解決済み）
 | description | 任意 | 最大2000文字 |
 | severity | 必須 | `LOW` / `MEDIUM` / `HIGH` |
 | status | 必須 | `PENDING` / `ONGOING` / `RESOLVED` |
+| dueDate | 必須 | `yyyy-MM-dd` 形式 |
+| resolvedDate | `status=RESOLVED` の場合必須 | `yyyy-MM-dd` 形式 |
+| assigneeUserId | 任意 | 既存ユーザーID。ただし既に担当者が設定済みの場合、未設定（null）への変更は不可 |
 
 ### 4.3 Response(params)
 
@@ -101,7 +107,17 @@ PENDING（未対応） ↔ ONGOING（対応中） ↔ RESOLVED（解決済み）
 5. 権限不足の場合は、以下の処理を実行する。
    - `AUTH_403` を返す。
 6. バリデーションを実行する。
-7. `escalations` テーブルを UPDATE する（`updated_at/updated_by` 更新）。
+7. `assigneeUserId` の変更を確認する。
+   - リクエストが `null` の場合は、以下の処理を実行する。
+     - `ESC_400` を返す（担当者は未設定に変更できない）。
+   - リクエストが値を持つ場合は、以下の処理を実行する。
+     - 次のステップに進む。
+8. `status` を確認する。
+   - `RESOLVED` の場合は、以下の処理を実行する。
+     - `resolvedDate` が未指定の場合は `VAL_001` を返す。
+   - `RESOLVED` 以外の場合は、以下の処理を実行する。
+     - 次のステップに進む。
+9. `escalations` テーブルを UPDATE する（`updated_at/updated_by` 更新）。
 
 ## 6 例外ケース
 
@@ -110,6 +126,8 @@ PENDING（未対応） ↔ ONGOING（対応中） ↔ RESOLVED（解決済み）
 | 未認証 | `AUTH_001` | ログインしてください |
 | 権限不足 | `AUTH_403` | 権限がありません |
 | 対象なし | `ESC_404` | 対象のエスカレーションが存在しません |
+| 担当者未設定への変更 | `ESC_400` | 担当者を未設定にはできません |
+| 完了期日未入力（RESOLVED時） | `VAL_001` | 完了期日を入力してください |
 | 入力不正 | `VAL_001` | 入力値を確認してください |
 
 ## 7 CRUD

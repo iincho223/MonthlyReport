@@ -412,7 +412,7 @@
 
 ## 3.6 エスカレーションAPI
 
-> **アクセス可能ロール**: TL・GL・OMのみ。NG・TM は全APIへのアクセス不可。
+> **アクセス可能ロール**: TL・GL・OM・SP・SM・SA。NG・TM は全APIへのアクセス不可。ただし起票（`/escalations/create`）は TL・GL・OM のみ可能。
 
 ### 3.6.1 POST `/escalations/search`
 
@@ -442,6 +442,7 @@
       "targetTeam": "チームA",
       "severity": "HIGH",
       "status": "PENDING",
+      "dueDate": "2026-03-20",
       "createdByName": "佐藤 花子",
       "updatedAt": "2026-03-10T09:00:00+09:00"
     }
@@ -476,13 +477,17 @@
   "description": "長期欠勤によりチームの負荷が増加している。",
   "severity": "HIGH",
   "status": "PENDING",
+  "dueDate": "2026-03-20",
+  "resolvedDate": null,
+  "assigneeUserId": 1003,
+  "assigneeName": "鈴木 一郎",
   "createdByName": "佐藤 花子",
   "createdByRole": "TL",
   "history": [
     {
       "date": "2026-03-10 09:00",
       "author": "佐藤 花子",
-      "text": "本人と面談で1履目完了。来週再劤漏勤予定とのこと。"
+      "text": "本人と面談し1回目完了。来週再欠勤予定とのこと。"
     }
   ],
   "updatedAt": "2026-03-10T09:00:00+09:00"
@@ -494,6 +499,8 @@
 #### 業務ルール
 
 - TL以上のみ起票可。
+- 対応期日（`dueDate`）は必ず設定する。
+- 対応担当者（`assigneeUserId`）は任意指定（未指定でも起票可）。
 
 #### Request
 
@@ -504,7 +511,9 @@
   "targetTeam": "チームA",
   "description": "長期欠勤によりチームの負荷が増加している。",
   "severity": "HIGH",
-  "status": "PENDING"
+  "status": "PENDING",
+  "dueDate": "2026-03-20",
+  "assigneeUserId": 1003
 }
 ```
 
@@ -520,9 +529,12 @@
 
 #### 業務ルール
 
-- 起票者またはGL以上が更新可。
+- 更新可否は参照スコープに準ずる（GL・SM は自営業所全件、TL は自チーム+自分起票分、SP は自分が担当のもの、OM・SA は全件）。
 - ステータスのみ変更する場合もこのAPIを使用する。
 - ステータス遷移: PENDING ↔ ONGOING ↔ RESOLVED（双方向可）
+- 対応期日（`dueDate`）は必ず設定する。
+- ステータスを `RESOLVED` にする場合は完了期日（`resolvedDate`）を必ず設定する。
+- 対応担当者（`assigneeUserId`）は TL 以上であればいつでも変更可能。ただし未設定（null）への変更は不可。
 
 #### Request
 
@@ -534,7 +546,10 @@
   "targetTeam": "チームA",
   "description": "長期欠勤によりチームの負荷が増加している。",
   "severity": "HIGH",
-  "status": "ONGOING"
+  "status": "ONGOING",
+  "dueDate": "2026-03-20",
+  "resolvedDate": null,
+  "assigneeUserId": 1003
 }
 ```
 
@@ -558,7 +573,7 @@
 ```json
 {
   "escalationId": "ESC001",
-  "logText": "来週再劤漏勤予定とのこと。次回面談を設定。"
+  "logText": "来週再欠勤予定とのこと。次回面談を設定。"
 }
 ```
 
@@ -685,7 +700,10 @@
 
 ```json
 {
-  "officeCode": "TOKYO"
+  "officeCode": "TOKYO",
+  "groupName": "",
+  "page": 1,
+  "size": 20
 }
 ```
 
@@ -693,14 +711,21 @@
 
 ```json
 {
-  "items": [
+  "groups": [
     {
       "groupCode": "GROUP_A",
       "groupName": "グループA",
       "officeCode": "TOKYO",
-      "glName": "グループリーダー名"
+      "officeName": "東京営業所",
+      "glUserId": 1001,
+      "glUserName": "グループリーダー名",
+      "teamCount": 3,
+      "memberCount": 12
     }
-  ]
+  ],
+  "totalCount": 1,
+  "page": 1,
+  "size": 20
 }
 ```
 
@@ -767,7 +792,10 @@
 
 ```json
 {
-  "groupCode": "GROUP_A"
+  "groupCode": "GROUP_A",
+  "teamName": "",
+  "page": 1,
+  "size": 20
 }
 ```
 
@@ -775,14 +803,20 @@
 
 ```json
 {
-  "items": [
+  "teams": [
     {
       "teamCode": "TEAM_A",
       "teamName": "チームA",
       "groupCode": "GROUP_A",
-      "tlName": "チームリーダー名"
+      "groupName": "グループA",
+      "tlUserId": 1003,
+      "tlUserName": "チームリーダー名",
+      "memberCount": 4
     }
-  ]
+  ],
+  "totalCount": 1,
+  "page": 1,
+  "size": 20
 }
 ```
 
@@ -847,6 +881,8 @@
 | escalation.targetEmployeeName | 必須 |
 | escalation.severity | `LOW/MEDIUM/HIGH` のみ |
 | escalation.status | `PENDING/ONGOING/RESOLVED` のみ |
+| escalation.dueDate | 必須、`yyyy-MM-dd` |
+| escalation.resolvedDate | `status=RESOLVED` の場合必須、`yyyy-MM-dd` |
 | escalation.logText | 必須 |
 | user.employeeNo | 必須、英数字、最大20文字 |
 | user.name | 必須 |
@@ -869,6 +905,9 @@
 | TL | 自分+同一チーム | 自分のみ | 可(他者のみ) | 自分のみ |
 | GL | 自分+同一営業所 | 自分のみ | 可(他者のみ) | 自分のみ |
 | OM | 全件 | 自分のみ | 可(他者のみ) | 全件 |
+| SP | 自分のみ | 自分のみ | 不可 | 自分のみ |
+| SM | 自分+同一営業所 | 自分のみ | 不可 | 自分のみ |
+| SA | 全件（マスク表示） | 不可 | 不可 | 不可 |
 
 ### エスカレーション
 
@@ -878,6 +917,9 @@
 | TL | 自チーム+自分起票分 | 可 | 可(可視範囲内) | 可 |
 | GL | 自営業所全件 | 可 | 可 | 可 |
 | OM | 全件 | 可 | 可 | 可 |
+| SP | 自分が担当のもの | 不可 | 可(可視範囲内) | 可 |
+| SM | 自営業所全件 | 不可 | 可 | 可 |
+| SA | 全件（マスク表示） | 不可 | 可 | 可 |
 
 ### ユーザー管理
 

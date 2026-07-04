@@ -41,7 +41,9 @@
   "targetTeam": "チームA",
   "description": "長期欠勤によりチームの負荷が増加している。",
   "severity": "HIGH",
-  "status": "PENDING"
+  "status": "PENDING",
+  "dueDate": "2026-03-20",
+  "assigneeUserId": 1003
 }
 ```
 
@@ -55,6 +57,8 @@
 | description | 任意 | 最大2000文字 |
 | severity | 必須 | `LOW` / `MEDIUM` / `HIGH` |
 | status | 任意 | `PENDING` / `ONGOING` / `RESOLVED`（省略時 `PENDING`） |
+| dueDate | 必須 | `yyyy-MM-dd` 形式 |
+| assigneeUserId | 任意 | 既存ユーザーID |
 
 ### 4.3 Response(params)
 
@@ -82,6 +86,8 @@
    - `created_by_role`: ログインユーザーのロール
    - `office_code`: ログインユーザーの営業所コード
    - `status`: リクエスト値（省略時 `PENDING`）
+   - `due_date`: リクエストの `dueDate`
+   - `assignee_user_id`: リクエストの `assigneeUserId`（省略時 null）
 5. 生成した `escalationId` を返却する。
 
 ## 6 例外ケース

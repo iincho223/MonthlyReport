@@ -20,7 +20,7 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 | ヘッダ名 | 必須 | 説明 |
 |---|---|---|
 | Authorization | 認証 API 以外 Y | `Bearer {accessToken}` — axios リクエストインターセプターが `localStorage.authToken` から自動付与 |
-| Content-Type | Y | `application/json` — axios インスタンスの御層設定で自動付与 |
+| Content-Type | Y | `application/json` — axios インスタンスの共通設定で自動付与 |
 | X-Request-Id | Y | 追跡用ID(UUID推奨) |
 
 ## 3.2 共通レスポンスIF
@@ -56,6 +56,20 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 | IF-API-09 | 月報更新 | 編集画面 | API | `/api/v1/reports/update` |
 | IF-API-10 | 月報削除 | 詳細画面 | API | `/api/v1/reports/delete` |
 | IF-API-11 | 回答更新 | 詳細画面 | API | `/api/v1/reports/feedback/update` |
+| IF-API-12 | エスカレーション一覧検索 | エスカレーション一覧画面 | API | `/api/v1/escalations/search` |
+| IF-API-13 | エスカレーション詳細取得 | エスカレーション詳細画面 | API | `/api/v1/escalations/detail` |
+| IF-API-14 | エスカレーション作成 | エスカレーション作成画面 | API | `/api/v1/escalations/create` |
+| IF-API-15 | エスカレーション更新 | エスカレーション詳細/編集画面 | API | `/api/v1/escalations/update` |
+| IF-API-16 | 対応ログ追加 | エスカレーション詳細画面 | API | `/api/v1/escalations/log/add` |
+| IF-API-17 | ユーザー一覧検索 | ユーザー管理画面 | API | `/api/v1/users/search` |
+| IF-API-18 | ユーザー登録 | ユーザー管理画面 | API | `/api/v1/users/create` |
+| IF-API-19 | ユーザー削除 | ユーザー管理画面 | API | `/api/v1/users/delete` |
+| IF-API-20 | グループ一覧検索 | 組織管理画面 | API | `/api/v1/groups/search` |
+| IF-API-21 | グループ登録 | 組織管理画面 | API | `/api/v1/groups/create` |
+| IF-API-22 | グループ削除 | 組織管理画面 | API | `/api/v1/groups/delete` |
+| IF-API-23 | チーム一覧検索 | 組織管理画面 | API | `/api/v1/teams/search` |
+| IF-API-24 | チーム登録 | 組織管理画面 | API | `/api/v1/teams/create` |
+| IF-API-25 | チーム削除 | 組織管理画面 | API | `/api/v1/teams/delete` |
 
 ## 5. 代表IF定義(抜粋)
 
@@ -141,13 +155,13 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
   "thisMonthOvertimeHours": 18,
   "thisMonthOvertimeReason": "障害調査",
   "conditions": {
-    "physical": "OK",
+    "physical": "GOOD",
     "stress": "WARN",
-    "relationships": "OK",
+    "relationships": "GOOD",
     "worries": "WARN",
     "fatigue": "NG",
     "sleep": "WARN",
-    "motivation": "OK"
+    "motivation": "GOOD"
   },
   "comments": "相談事項あり"
 }
@@ -199,4 +213,4 @@ UI動作は `doc/プロトタイプデザイン.html` を前提とする。
 - 一覧の表示範囲はサーバ側でロールに応じて制御し、クライアント側での絞り込みは補助用途のみとする。
 - API 失敗時は axios レスポンスインターセプターが `resultMsg` を message とする `Error` に変換する。画面層は `error.message` をトーストで表示する（`ApiResponse` 層を直接参照しない）。
 - HTTP 401 は axios インターセプターが共通実装する。画面層ほどの個別対応不要。
-- ログイン成功時は `params.token` (`accessToken`) を `localStorage.authToken` に保存する。
+- ログイン成功時は `params.accessToken` を `localStorage.authToken` に保存する。

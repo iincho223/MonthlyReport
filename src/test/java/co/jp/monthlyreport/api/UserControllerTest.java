@@ -102,4 +102,187 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.resultStatus").value("1"))
                 .andExpect(jsonPath("$.resultCd").value("AUTH_001"));
     }
+
+    // ---------------------------------------------------------------------------
+    // /users/search（API-17）
+    // ---------------------------------------------------------------------------
+
+    /** GL（EMP009）が自グループ配下のエンジニアを検索 → EMP004/EMP005 が含まれる。 */
+    @Test
+    void search_as_gl_success() throws Exception {
+        String token = login("EMP009", "pass");
+
+        mockMvc.perform(post("/api/v1/users/search")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultStatus").value("0"))
+                .andExpect(jsonPath("$.params.items").isArray());
+    }
+
+    /** TM（EMP004）が検索 → resultCd=AUTH_403（ユーザー管理権限なし）。 */
+    @Test
+    void search_denied_as_tm() throws Exception {
+        String token = login("EMP004", "pass");
+
+        mockMvc.perform(post("/api/v1/users/search")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultStatus").value("1"))
+                .andExpect(jsonPath("$.resultCd").value("AUTH_403"));
+    }
+
+    // ---------------------------------------------------------------------------
+    // /users/create（API-18）
+    // ---------------------------------------------------------------------------
+
+    /** OM（EMP001）が自営業所にエンジニア（TM）を登録 → userId が返る。 */
+    @Test
+    void create_success_as_om() throws Exception {
+        String token = login("EMP001", "pass");
+
+        mockMvc.perform(post("/api/v1/users/create")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "employeeNo": "EMP100",
+                                  "name": "新規 太郎",
+                                  "role": "TM",
+                                  "officeCode": "TOKYO",
+                                  "teamCode": "TEAM_A",
+                                  "password": "initialPass"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultStatus").value("0"))
+                .andExpect(jsonPath("$.params.userId").exists());
+    }
+
+    /** GL（EMP009）が自グループ配下チームにエンジニアを登録 → 成功。 */
+    @Test
+    void create_success_as_gl_in_own_group() throws Exception {
+        String token = login("EMP009", "pass");
+
+        mockMvc.perform(post("/api/v1/users/create")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "employeeNo": "EMP101",
+                                  "name": "新規 次郎",
+                                  "role": "TM",
+                                  "officeCode": "TOKYO",
+                                  "teamCode": "TEAM_A",
+                                  "password": "initialPass"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultStatus").value("0"));
+    }
+
+    /** GL（EMP009）が自グループ配下でないチーム（SALES_WEST）に登録しようとする → resultCd=AUTH_403。 */
+    @Test
+    void create_denied_as_gl_out_of_scope() throws Exception {
+        String token = login("EMP009", "pass");
+
+        mockMvc.perform(post("/api/v1/users/create")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "employeeNo": "EMP102",
+                                  "name": "スコープ外太郎",
+                                  "role": "TM",
+                                  "officeCode": "OSAKA",
+                                  "teamCode": "SALES_WEST",
+                                  "password": "initialPass"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultStatus").value("1"))
+                .andExpect(jsonPath("$.resultCd").value("AUTH_403"));
+    }
+
+    /** 社員番号が重複 → resultCd=USER_409。 */
+    @Test
+    void create_duplicate_employee_no() throws Exception {
+        String token = login("EMP001", "pass");
+
+        mockMvc.perform(post("/api/v1/users/create")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "employeeNo": "EMP004",
+                                  "name": "重複太郎",
+                                  "role": "TM",
+                                  "officeCode": "TOKYO",
+                                  "teamCode": "TEAM_A",
+                                  "password": "initialPass"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultStatus").value("1"))
+                .andExpect(jsonPath("$.resultCd").value("USER_409"));
+    }
+
+    // ---------------------------------------------------------------------------
+    // /users/delete（API-19）
+    // ---------------------------------------------------------------------------
+
+    /** OM（EMP001）が自営業所のエンジニアを削除 → deleted=true。 */
+    @Test
+    void delete_success_as_om() throws Exception {
+        String omToken = login("EMP001", "pass");
+        MvcResult createResult = mockMvc.perform(post("/api/v1/users/create")
+                        .header("Authorization", "Bearer " + omToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "employeeNo": "EMP103",
+                                  "name": "削除対象太郎",
+                                  "role": "TM",
+                                  "officeCode": "TOKYO",
+                                  "teamCode": "TEAM_A",
+                                  "password": "initialPass"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        long userId = objectMapper.readTree(createResult.getResponse().getContentAsString())
+                .path("params").path("userId").asLong();
+
+        mockMvc.perform(post("/api/v1/users/delete")
+                        .header("Authorization", "Bearer " + omToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\": " + userId + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultStatus").value("0"))
+                .andExpect(jsonPath("$.params.deleted").value(true));
+    }
+
+    /** OM（EMP001）が自分自身を削除しようとする → resultCd=USER_400。 */
+    @Test
+    void delete_denied_self() throws Exception {
+        String omToken = login("EMP001", "pass");
+        MvcResult meResult = mockMvc.perform(post("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + omToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andReturn();
+        long userId = objectMapper.readTree(meResult.getResponse().getContentAsString())
+                .path("params").path("userId").asLong();
+
+        mockMvc.perform(post("/api/v1/users/delete")
+                        .header("Authorization", "Bearer " + omToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\": " + userId + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultStatus").value("1"))
+                .andExpect(jsonPath("$.resultCd").value("USER_400"));
+    }
 }

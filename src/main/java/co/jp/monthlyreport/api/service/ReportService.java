@@ -148,6 +148,10 @@ public class ReportService {
    * @return 作成結果
    */
   public Map<String, Object> create(AuthUser user, ReportCreateRequest request) {
+    // NG は月報の提出不可。
+    if (user.role() == UserRole.NG) {
+      throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.REPORT_NO_CREATE_PERMISSION));
+    }
     // 体調コンディションのキー/値を事前検証する。
     validateConditions(request.conditions());
 

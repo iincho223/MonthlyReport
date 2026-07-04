@@ -62,6 +62,7 @@
       "targetTeam": "チームA",
       "severity": "HIGH",
       "status": "PENDING",
+      "dueDate": "2026-03-20",
       "createdByName": "佐藤 花子",
       "updatedAt": "2026-03-10T09:00:00+09:00"
     }
@@ -85,6 +86,7 @@
 | targetTeam | string | 対象チーム名 |
 | severity | string | 重要度（`LOW` / `MEDIUM` / `HIGH`） |
 | status | string | ステータス（`PENDING` / `ONGOING` / `RESOLVED`） |
+| dueDate | string | 対応期日（`yyyy-MM-dd`） |
 | createdByName | string | 起票者氏名 |
 | updatedAt | string | 最終更新日時（ISO 8601） |
 

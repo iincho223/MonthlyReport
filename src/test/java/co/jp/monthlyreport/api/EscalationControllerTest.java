@@ -61,7 +61,8 @@ class EscalationControllerTest {
                   "targetTeam": "チームA",
                   "description": "テスト用の詳細内容",
                   "severity": "MEDIUM",
-                  "status": "PENDING"
+                  "status": "PENDING",
+                  "dueDate": "2026-04-30"
                 }
                 """))
         .andExpect(status().isOk())
@@ -102,6 +103,32 @@ class EscalationControllerTest {
         .andExpect(jsonPath("$.resultCd").value("AUTH_403"));
   }
 
+  /** SM（EMP007）で検索 → resultStatus=0（SP/SM/SA も参照可能）。 */
+  @Test
+  void search_as_sm_success() throws Exception {
+    String token = login("EMP007");
+    mockMvc.perform(post("/api/v1/escalations/search")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resultStatus").value("0"))
+        .andExpect(jsonPath("$.params.items").isArray());
+  }
+
+  /** SA（EMP008）で検索 → resultStatus=0（全件参照、画面側でマスク表示）。 */
+  @Test
+  void search_as_sa_success() throws Exception {
+    String token = login("EMP008");
+    mockMvc.perform(post("/api/v1/escalations/search")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resultStatus").value("0"))
+        .andExpect(jsonPath("$.params.items").isArray());
+  }
+
   // -------------------------------------------------------------------------
   // API-14: /escalations/create
   // -------------------------------------------------------------------------
@@ -120,7 +147,8 @@ class EscalationControllerTest {
                   "targetTeam": "チームA",
                   "description": "詳細内容",
                   "severity": "HIGH",
-                  "status": "PENDING"
+                  "status": "PENDING",
+                  "dueDate": "2026-04-30"
                 }
                 """))
         .andExpect(status().isOk())
@@ -141,7 +169,33 @@ class EscalationControllerTest {
                   "targetEmployeeName": "テスト 太郎",
                   "targetTeam": "チームA",
                   "severity": "LOW",
-                  "status": "PENDING"
+                  "status": "PENDING",
+                  "dueDate": "2026-04-30"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resultStatus").value("1"))
+        .andExpect(jsonPath("$.resultCd").value("AUTH_403"));
+  }
+
+  /**
+   * SP（EMP006）が起票 → resultCd=AUTH_403。
+   * SP/SM/SA は参照・更新は可能だが起票は TL/GL/OM のみ許可される。
+   */
+  @Test
+  void create_denied_as_sp() throws Exception {
+    String token = login("EMP006");
+    mockMvc.perform(post("/api/v1/escalations/create")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "title": "不正起票テスト",
+                  "targetEmployeeName": "テスト 太郎",
+                  "targetTeam": "チームA",
+                  "severity": "LOW",
+                  "status": "PENDING",
+                  "dueDate": "2026-04-30"
                 }
                 """))
         .andExpect(status().isOk())
@@ -159,6 +213,28 @@ class EscalationControllerTest {
             .content("""
                 {
                   "title": "",
+                  "targetEmployeeName": "テスト 太郎",
+                  "targetTeam": "チームA",
+                  "severity": "LOW",
+                  "status": "PENDING",
+                  "dueDate": "2026-04-30"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resultStatus").value("1"))
+        .andExpect(jsonPath("$.resultCd").value("VAL_001"));
+  }
+
+  /** dueDate が未入力の場合 → resultStatus=1、resultCd=VAL_001。 */
+  @Test
+  void create_validation_missing_due_date() throws Exception {
+    String token = login("EMP003");
+    mockMvc.perform(post("/api/v1/escalations/create")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "title": "対応期日未入力テスト",
                   "targetEmployeeName": "テスト 太郎",
                   "targetTeam": "チームA",
                   "severity": "LOW",
@@ -227,7 +303,8 @@ class EscalationControllerTest {
                   "targetTeam": "チームA",
                   "description": "更新後の詳細",
                   "severity": "LOW",
-                  "status": "ONGOING"
+                  "status": "ONGOING",
+                  "dueDate": "2026-05-15"
                 }
                 """.formatted(escalationId)))
         .andExpect(status().isOk())
@@ -257,7 +334,8 @@ class EscalationControllerTest {
                   "targetTeam": "チームA",
                   "description": "OM による更新",
                   "severity": "HIGH",
-                  "status": "ONGOING"
+                  "status": "ONGOING",
+                  "dueDate": "2026-05-15"
                 }
                 """.formatted(escalationId)))
         .andExpect(status().isOk())
@@ -289,12 +367,111 @@ class EscalationControllerTest {
                   "targetTeam": "チームA",
                   "description": "不正更新の詳細",
                   "severity": "LOW",
-                  "status": "PENDING"
+                  "status": "PENDING",
+                  "dueDate": "2026-05-15"
                 }
                 """.formatted(escalationId)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.resultStatus").value("1"))
         .andExpect(jsonPath("$.resultCd").value("AUTH_403"));
+  }
+
+  /** ステータスを RESOLVED にする際に完了期日（resolvedDate）が未入力 → resultCd=VAL_001。 */
+  @Test
+  void update_denied_resolved_without_resolved_date() throws Exception {
+    String token = login("EMP003");
+    String escalationId = createEscalation(token);
+
+    mockMvc.perform(post("/api/v1/escalations/update")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "escalationId": "%s",
+                  "title": "解決済みタイトル",
+                  "targetEmployeeName": "テスト 太郎",
+                  "targetTeam": "チームA",
+                  "description": "解決済みにする",
+                  "severity": "LOW",
+                  "status": "RESOLVED",
+                  "dueDate": "2026-05-15"
+                }
+                """.formatted(escalationId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resultStatus").value("1"))
+        .andExpect(jsonPath("$.resultCd").value("VAL_001"));
+  }
+
+  /** 完了期日を添えて RESOLVED に更新 → updated=true。 */
+  @Test
+  void update_success_resolved_with_resolved_date() throws Exception {
+    String token = login("EMP003");
+    String escalationId = createEscalation(token);
+
+    mockMvc.perform(post("/api/v1/escalations/update")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "escalationId": "%s",
+                  "title": "解決済みタイトル",
+                  "targetEmployeeName": "テスト 太郎",
+                  "targetTeam": "チームA",
+                  "description": "解決済みにする",
+                  "severity": "LOW",
+                  "status": "RESOLVED",
+                  "dueDate": "2026-05-15",
+                  "resolvedDate": "2026-05-10"
+                }
+                """.formatted(escalationId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resultStatus").value("0"))
+        .andExpect(jsonPath("$.params.updated").value(true));
+  }
+
+  /** 担当者を設定後、未設定（null）へ変更しようとする → resultCd=ESC_400。 */
+  @Test
+  void update_denied_unset_assignee() throws Exception {
+    String token = login("EMP003");
+    String escalationId = createEscalation(token);
+
+    // まず担当者（EMP004）を設定する。
+    mockMvc.perform(post("/api/v1/escalations/update")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "escalationId": "%s",
+                  "title": "担当者設定テスト",
+                  "targetEmployeeName": "テスト 太郎",
+                  "targetTeam": "チームA",
+                  "severity": "LOW",
+                  "status": "PENDING",
+                  "dueDate": "2026-05-15",
+                  "assigneeUserId": 1004
+                }
+                """.formatted(escalationId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resultStatus").value("0"));
+
+    // 担当者を未設定（null）へ戻そうとすると拒否される。
+    mockMvc.perform(post("/api/v1/escalations/update")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "escalationId": "%s",
+                  "title": "担当者解除テスト",
+                  "targetEmployeeName": "テスト 太郎",
+                  "targetTeam": "チームA",
+                  "severity": "LOW",
+                  "status": "PENDING",
+                  "dueDate": "2026-05-15"
+                }
+                """.formatted(escalationId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.resultStatus").value("1"))
+        .andExpect(jsonPath("$.resultCd").value("ESC_400"));
   }
 
   // -------------------------------------------------------------------------

@@ -1,7 +1,9 @@
 package co.jp.monthlyreport.api.repository;
 
 import co.jp.monthlyreport.api.model.EscalationRecord;
+import co.jp.monthlyreport.api.model.GroupRecord;
 import co.jp.monthlyreport.api.model.ReportRecord;
+import co.jp.monthlyreport.api.model.TeamRecord;
 import co.jp.monthlyreport.api.model.UserAccount;
 import co.jp.monthlyreport.api.model.UserRole;
 import java.time.OffsetDateTime;
@@ -23,6 +25,8 @@ public class InMemoryDataStore {
   private final Map<Long, UserAccount> usersById = new ConcurrentHashMap<>();
   private final Map<String, ReportRecord> reports = new ConcurrentHashMap<>();
   private final Map<String, EscalationRecord> escalations = new ConcurrentHashMap<>();
+  private final Map<String, GroupRecord> groups = new ConcurrentHashMap<>();
+  private final Map<String, TeamRecord> teams = new ConcurrentHashMap<>();
 
   /**
    * 初期データを登録する。
@@ -35,6 +39,18 @@ public class InMemoryDataStore {
     registerUser(buildUser(1002L, "EMP002", "鈴木 一郎", "pass", UserRole.GL, "OSAKA", "SALES_WEST"));
     registerUser(buildUser(1003L, "EMP003", "佐藤 花子", "pass", UserRole.TL, "TOKYO", "TEAM_A"));
     registerUser(buildUser(1004L, "EMP004", "山田 健太", "pass", UserRole.TM, "TOKYO", "TEAM_A"));
+    registerUser(buildUser(1005L, "EMP005", "新卒 一郎", "pass", UserRole.NG, "TOKYO", "TEAM_A"));
+    registerUser(buildUser(1006L, "EMP006", "営業 次郎", "pass", UserRole.SP, "TOKYO", "HQ"));
+    registerUser(buildUser(1007L, "EMP007", "支店長 三郎", "pass", UserRole.SM, "TOKYO", "HQ"));
+    registerUser(buildUser(1008L, "EMP008", "管理者 四郎", "pass", UserRole.SA, "TOKYO", "HQ"));
+    registerUser(buildUser(1009L, "EMP009", "髙橋 五郎", "pass", UserRole.GL, "TOKYO", "TEAM_A"));
+    registerUser(buildUser(1010L, "EMP010", "伊藤 六郎", "pass", UserRole.TL, "OSAKA", "SALES_WEST"));
+
+    // 検証用の初期グループ/チームを登録する。
+    saveGroup(buildGroup("GROUP_A", "東京第1グループ", "TOKYO", 1009L));
+    saveGroup(buildGroup("GROUP_OSAKA_1", "大阪第1グループ", "OSAKA", 1002L));
+    saveTeam(buildTeam("TEAM_A", "Aチーム", "GROUP_A", "TOKYO", 1003L));
+    saveTeam(buildTeam("SALES_WEST", "西営業チーム", "GROUP_OSAKA_1", "OSAKA", 1010L));
 
     // 初期月報データを 1 件投入する。
     ReportRecord seed = new ReportRecord();
@@ -97,15 +113,70 @@ public class InMemoryDataStore {
   }
 
   /**
+   * GroupRecord オブジェクトをセッターで組み立てるファクトリメソッド。
+   * インプット: 各フィールドの値（groupCode, groupName, officeCode, glUserId）。
+   * アウトプット: 削除フラグ=false に設定した GroupRecord。
+   *
+   * @param groupCode  グループコード
+   * @param groupName  グループ名
+   * @param officeCode 拠点コード
+   * @param glUserId   グループリーダーのユーザーID
+   * @return 組み立て済みの GroupRecord
+   */
+  private GroupRecord buildGroup(String groupCode, String groupName, String officeCode, Long glUserId) {
+    GroupRecord g = new GroupRecord();
+    g.setGroupCode(groupCode);
+    g.setGroupName(groupName);
+    g.setOfficeCode(officeCode);
+    g.setGlUserId(glUserId);
+    g.setDeleted(false);
+    return g;
+  }
+
+  /**
+   * TeamRecord オブジェクトをセッターで組み立てるファクトリメソッド。
+   * インプット: 各フィールドの値（teamCode, teamName, groupCode, officeCode, tlUserId）。
+   * アウトプット: 削除フラグ=false に設定した TeamRecord。
+   *
+   * @param teamCode   チームコード
+   * @param teamName   チーム名
+   * @param groupCode  所属グループコード
+   * @param officeCode 拠点コード
+   * @param tlUserId   チームリーダーのユーザーID
+   * @return 組み立て済みの TeamRecord
+   */
+  private TeamRecord buildTeam(String teamCode, String teamName, String groupCode, String officeCode, Long tlUserId) {
+    TeamRecord t = new TeamRecord();
+    t.setTeamCode(teamCode);
+    t.setTeamName(teamName);
+    t.setGroupCode(groupCode);
+    t.setOfficeCode(officeCode);
+    t.setTlUserId(tlUserId);
+    t.setDeleted(false);
+    return t;
+  }
+
+  /**
    * ユーザーを社員番号とユーザーIDで登録する。
    * インプット: user ユーザー情報。
    * アウトプット: 社員番号・ID の両インデックスに登録された状態。
    *
    * @param user ユーザー情報
    */
-  private void registerUser(UserAccount user) {
+  public void registerUser(UserAccount user) {
     usersByEmployeeNo.put(user.getEmployeeNo(), user);
     usersById.put(user.getUserId(), user);
+  }
+
+  /**
+   * 新しいユーザーIDを発番する。
+   * インプット: なし。
+   * アウトプット: 既存の最大ユーザーIDに1を加えた値。
+   *
+   * @return 新しいユーザーID
+   */
+  public synchronized Long newUserId() {
+    return usersById.keySet().stream().mapToLong(Long::longValue).max().orElse(1000L) + 1;
   }
 
   /**
@@ -209,6 +280,74 @@ public class InMemoryDataStore {
    */
   public void saveEscalation(EscalationRecord record) {
     escalations.put(record.getEscalationId(), record);
+  }
+
+  /**
+   * 全グループを取得する。
+   * インプット: なし。
+   * アウトプット: グループコレクション。
+   *
+   * @return 全グループ
+   */
+  public Collection<GroupRecord> findAllGroups() {
+    return groups.values();
+  }
+
+  /**
+   * グループコードでグループを検索する。
+   * インプット: groupCode グループコード。
+   * アウトプット: グループの Optional。
+   *
+   * @param groupCode グループコード
+   * @return グループ検索結果
+   */
+  public Optional<GroupRecord> findGroupByCode(String groupCode) {
+    return Optional.ofNullable(groups.get(groupCode));
+  }
+
+  /**
+   * グループを保存する。
+   * インプット: record グループレコード。
+   * アウトプット: グループストアへ保存された状態。
+   *
+   * @param record グループレコード
+   */
+  public void saveGroup(GroupRecord record) {
+    groups.put(record.getGroupCode(), record);
+  }
+
+  /**
+   * 全チームを取得する。
+   * インプット: なし。
+   * アウトプット: チームコレクション。
+   *
+   * @return 全チーム
+   */
+  public Collection<TeamRecord> findAllTeams() {
+    return teams.values();
+  }
+
+  /**
+   * チームコードでチームを検索する。
+   * インプット: teamCode チームコード。
+   * アウトプット: チームの Optional。
+   *
+   * @param teamCode チームコード
+   * @return チーム検索結果
+   */
+  public Optional<TeamRecord> findTeamByCode(String teamCode) {
+    return Optional.ofNullable(teams.get(teamCode));
+  }
+
+  /**
+   * チームを保存する。
+   * インプット: record チームレコード。
+   * アウトプット: チームストアへ保存された状態。
+   *
+   * @param record チームレコード
+   */
+  public void saveTeam(TeamRecord record) {
+    teams.put(record.getTeamCode(), record);
   }
 
   /**

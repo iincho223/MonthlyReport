@@ -36,7 +36,9 @@
 
 - 通信方式: HTTPS + JSON
 - 通信メソッド: 原則POST
-- 認証: JWT Bearer (認証API以外)- フロントエンド HTTP クライアント: axios インスタンス経由必須（`fetch` / `XMLHttpRequest` 禁止。詳細は `API設計方針.md` 4.5 を参照）- 共通レスポンス:
+- 認証: JWT Bearer (認証API以外)
+- フロントエンド HTTP クライアント: axios インスタンス経由必須（`fetch` / `XMLHttpRequest` 禁止。詳細は `API設計方針.md` 4.5 を参照）
+- 共通レスポンス:
 
 ```json
 {

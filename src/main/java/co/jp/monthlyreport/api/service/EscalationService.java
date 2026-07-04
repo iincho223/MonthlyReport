@@ -11,6 +11,7 @@ import co.jp.monthlyreport.api.dto.request.EscalationSearchRequest;
 import co.jp.monthlyreport.api.dto.request.EscalationUpdateRequest;
 import co.jp.monthlyreport.api.model.EscalationLogRecord;
 import co.jp.monthlyreport.api.model.EscalationRecord;
+import co.jp.monthlyreport.api.model.UserAccount;
 import co.jp.monthlyreport.api.model.UserRole;
 import co.jp.monthlyreport.api.repository.InMemoryDataStore;
 import java.time.OffsetDateTime;
@@ -77,6 +78,7 @@ public class EscalationService {
       item.put(ResponseKeys.TARGET_TEAM, e.getTargetTeam());
       item.put(ResponseKeys.SEVERITY, e.getSeverity());
       item.put(ResponseKeys.STATUS, e.getStatus());
+      item.put(ResponseKeys.DUE_DATE, e.getDueDate());
       item.put(ResponseKeys.CREATED_BY_NAME, e.getCreatedByName());
       item.put(ResponseKeys.UPDATED_AT, e.getUpdatedAt().toString());
       return item;
@@ -123,12 +125,32 @@ public class EscalationService {
     params.put(ResponseKeys.DESCRIPTION, esc.getDescription());
     params.put(ResponseKeys.SEVERITY, esc.getSeverity());
     params.put(ResponseKeys.STATUS, esc.getStatus());
+    params.put(ResponseKeys.DUE_DATE, esc.getDueDate());
+    params.put(ResponseKeys.RESOLVED_DATE, esc.getResolvedDate());
     params.put(ResponseKeys.CREATED_BY_NAME, esc.getCreatedByName());
     params.put(ResponseKeys.CREATED_BY_ROLE, esc.getCreatedByRole());
     params.put(ResponseKeys.ASSIGNEE_USER_ID, esc.getAssigneeUserId());
+    params.put(ResponseKeys.ASSIGNEE_NAME, resolveAssigneeName(esc.getAssigneeUserId()));
     params.put(ResponseKeys.HISTORY, history);
     params.put(ResponseKeys.UPDATED_AT, esc.getUpdatedAt().toString());
     return params;
+  }
+
+  /**
+   * 担当者ユーザーIDから氏名を解決する。
+   * インプット: assigneeUserId 担当者ユーザーID。
+   * アウトプット: 対応するユーザーの氏名（未割当または削除済みの場合は null）。
+   *
+   * @param assigneeUserId 担当者ユーザーID
+   * @return 担当者氏名
+   */
+  private String resolveAssigneeName(Long assigneeUserId) {
+    if (assigneeUserId == null) {
+      return null;
+    }
+    return dataStore.findUserById(assigneeUserId)
+        .map(UserAccount::getName)
+        .orElse(null);
   }
 
   /**
@@ -141,9 +163,8 @@ public class EscalationService {
    * @return 作成結果
    */
   public Map<String, Object> create(AuthUser user, EscalationCreateRequest request) {
-    // 起票は TL 以上のみ許可する。
-    // 起票は TL 以上のみ許可する（NG・TM は不可）。
-    if (!user.role().canAccessEscalation()) {
+    // 起票は TL 以上（TL/GL/OM）のみ許可する（NG・TM・SP・SM・SA は不可）。
+    if (!canCreate(user.role())) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.ESC_NO_CREATE_PERMISSION));
     }
     validateSeverity(request.severity());
@@ -159,6 +180,8 @@ public class EscalationService {
     esc.setDescription(request.description());
     esc.setSeverity(request.severity().toUpperCase(Locale.ROOT));
     esc.setStatus(initialStatus);
+    esc.setDueDate(request.dueDate());
+    esc.setResolvedDate(null);
     esc.setCreatedBy(user.userId());
     esc.setCreatedByName(user.name());
     esc.setCreatedByRole(user.role().name());
@@ -190,14 +213,25 @@ public class EscalationService {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.ESC_NO_UPDATE_PERMISSION));
     }
     validateSeverity(request.severity());
-    validateStatus(request.status());
+    String status = request.status().toUpperCase(Locale.ROOT);
+    validateStatus(status);
+    // RESOLVED にする場合は完了期日を必須とする。
+    if ("RESOLVED".equals(status) && (request.resolvedDate() == null || request.resolvedDate().isBlank())) {
+      throw new BusinessException(ErrorCodes.VAL_001, msg(MessageKeys.ESC_RESOLVED_DATE_REQUIRED));
+    }
+    // 担当者は一度設定すると未設定への変更を禁止する。
+    if (esc.getAssigneeUserId() != null && request.assigneeUserId() == null) {
+      throw new BusinessException(ErrorCodes.ESC_400, msg(MessageKeys.ESC_ASSIGNEE_REQUIRED));
+    }
 
     esc.setTitle(request.title());
     esc.setTargetEmployeeName(request.targetEmployeeName());
     esc.setTargetTeam(request.targetTeam());
     esc.setDescription(request.description());
     esc.setSeverity(request.severity().toUpperCase(Locale.ROOT));
-    esc.setStatus(request.status().toUpperCase(Locale.ROOT));
+    esc.setStatus(status);
+    esc.setDueDate(request.dueDate());
+    esc.setResolvedDate("RESOLVED".equals(status) ? request.resolvedDate() : null);
     esc.setAssigneeUserId(request.assigneeUserId());
     esc.setUpdatedAt(OffsetDateTime.now());
     dataStore.saveEscalation(esc);
@@ -313,6 +347,16 @@ public class EscalationService {
     // SP は担当エスカレーション（canView が true であれば更新も許可）。
     if (user.role() == UserRole.SP) return canView(user, esc);
     return false;
+  }
+
+  /**
+   * エスカレーション起票権限を判定する（TL/GL/OM のみ）。
+   *
+   * @param role ログインユーザーのロール
+   * @return 起票可否
+   */
+  private boolean canCreate(UserRole role) {
+    return role == UserRole.TL || role == UserRole.GL || role == UserRole.OM;
   }
 
   /**

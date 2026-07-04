@@ -39,6 +39,12 @@ public class EscalationRecord {
   /** ステータス (PENDING / ONGOING / RESOLVED) */
   private String status;
 
+  /** 対応期日 (yyyy-MM-dd) */
+  private String dueDate;
+
+  /** 完了期日 (yyyy-MM-dd、status=RESOLVED 以外は null) */
+  private String resolvedDate;
+
   /** 起票者ユーザーID */
   private Long createdBy;
 

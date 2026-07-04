@@ -2,6 +2,7 @@ package co.jp.monthlyreport.api.dto.request;
 
 import co.jp.monthlyreport.api.common.ValidationConstants;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -15,6 +16,7 @@ import jakarta.validation.constraints.Size;
  * @param description         詳細内容（任意、最大 {@value co.jp.monthlyreport.api.common.ValidationConstants#MAX_ESC_DESCRIPTION} 文字）
  * @param severity            重要度（LOW / MEDIUM / HIGH）
  * @param status              初期ステータス（PENDING / ONGOING / RESOLVED。省略時 PENDING）
+ * @param dueDate             対応期日（yyyy-MM-dd 形式、必須）
  * @param assigneeUserId      担当者ユーザーID（任意）
  */
 public record EscalationCreateRequest(
@@ -24,4 +26,5 @@ public record EscalationCreateRequest(
     @Size(max = ValidationConstants.MAX_ESC_DESCRIPTION) String description,
     @NotBlank String severity,
     String status,
+    @NotBlank @Pattern(regexp = ValidationConstants.REGEX_DATE, message = "must be yyyy-MM-dd") String dueDate,
     Long assigneeUserId) {}

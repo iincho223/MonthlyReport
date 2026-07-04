@@ -57,6 +57,10 @@
   "description": "長期欠勤によりチームの負荷が増加している。",
   "severity": "HIGH",
   "status": "ONGOING",
+  "dueDate": "2026-03-20",
+  "resolvedDate": null,
+  "assigneeUserId": 1003,
+  "assigneeName": "鈴木 一郎",
   "createdByName": "佐藤 花子",
   "createdByRole": "TL",
   "history": [
@@ -82,6 +86,10 @@
 | description | string | 詳細内容（null 可） |
 | severity | string | 重要度（`LOW` / `MEDIUM` / `HIGH`） |
 | status | string | ステータス（`PENDING` / `ONGOING` / `RESOLVED`） |
+| dueDate | string | 対応期日（`yyyy-MM-dd`） |
+| resolvedDate | string/null | 完了期日（`yyyy-MM-dd`、`status=RESOLVED` 以外は null） |
+| assigneeUserId | number/null | 対応担当者ユーザーID |
+| assigneeName | string/null | 対応担当者氏名 |
 | createdByName | string | 起票者氏名 |
 | createdByRole | string | 起票者ロール |
 | history | array | 対応ログ一覧（時系列順） |

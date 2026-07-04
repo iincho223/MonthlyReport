@@ -22,7 +22,7 @@
 
 ## 2 概要
 
-月報を新規登録する。同一ユーザーの同一月の月報（有効データ）は 1 件のみ登録平。
+月報を新規登録する。同一ユーザーの同一月の月報（有効データ）は 1 件のみ登録可能。
 登録時の所属情報を `reports.office_code/team_code` にスナップショット保存する。
 
 ## 3 前提条件
@@ -63,11 +63,11 @@
 | month | 必須 | `yyyy-MM` 形式 |
 | title | 必須 | 最大100文字 |
 | salesInfo | 任意 | 最大500文字 |
-| nextMonthOvertimeHours | 任意 | 0−3000（单位: 時間） |
+| nextMonthOvertimeHours | 任意 | 0-300（単位: 時間） |
 | nextMonthOvertimeReason | 任意 | 最大255文字 |
-| thisMonthOvertimeHours | 任意 | 0−3000（単位: 時間） |
+| thisMonthOvertimeHours | 任意 | 0-300（単位: 時間） |
 | thisMonthOvertimeReason | 任意 | 最大255文字 |
-| conditions | 必須 | 全 7 項目必須、06BEST/GOOD/WARN/NG` のみ |
+| conditions | 必須 | 全 7 項目必須、`BEST/GOOD/WARN/NG` のみ |
 | comments | 任意 | 最大500文字 |
 
 ### 4.3 Response(params)
@@ -81,21 +81,27 @@
 ## 5 ロジックフロー
 
 1. JWT からログインユーザーの情報を取得する。
-2. ダブル登録チェックを行う（`author_user_id + report_month + delete_flag=0`）。
+2. ロールを確認する。
+   - NG の場合は、以下の処理を実行する。
+     - `AUTH_403` を返す。
+   - NG 以外の場合は、以下の処理を実行する。
+     - 次のステップに進む。
+3. ダブル登録チェックを行う（`author_user_id + report_month + delete_flag=0`）。
    - 同月の月報が存在する場合は、以下の処理を実行する。
      - `REPORT_409` を返す。
    - 存在しない場合は、以下の処理を実行する。
      - 次のステップに進む。
-3. `reports` テーブルに登録する（`office_code/team_code` をスナップショット保存）。
-4. `report_conditions` テーブルに登録する。
-5. トランザクションをコミットする。
-6. 生成した `reportId` を返却する。
+4. `reports` テーブルに登録する（`office_code/team_code` をスナップショット保存）。
+5. `report_conditions` テーブルに登録する。
+6. トランザクションをコミットする。
+7. 生成した `reportId` を返却する。
 
 ## 6 例外ケース
 
 | ケース | エラーコード | 説明 |
 |---|---|---|
 | 未認証 | `AUTH_001` | ログインしてください |
+| 権限不足（NG） | `AUTH_403` | 権限がありません |
 | 同月重複 | `REPORT_409` | 同月の月報が存在します |
 | 入力不正 | `VAL_001` | 入力値を確認してください |
 

@@ -21,7 +21,7 @@ import jakarta.validation.constraints.Size;
  * @param nextMonthOvertimeReason  来月見込み残業理由（任意）
  * @param thisMonthOvertimeHours   今月実績残業時間（0〜{@value co.jp.monthlyreport.api.common.ValidationConstants#MAX_OVERTIME_HOURS} 時間、必須）
  * @param thisMonthOvertimeReason  今月実績残業理由（任意）
- * @param conditions               体調コンディション（キー: physical/stress/relationships/worries/fatigue/sleep/motivation、値: OK/WARN/NG、必須）
+ * @param conditions               体調コンディション（キー: physical/stress/relationships/worries/fatigue/sleep/motivation、値: BEST/GOOD/WARN/NG、必須）
  * @param comments                 コメント・相談事項（任意）
  */
 public record ReportCreateRequest(

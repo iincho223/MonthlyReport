@@ -20,6 +20,12 @@ public final class ValidationConstants {
   /** 年月（任意）：空文字または yyyy-MM 形式 */
   public static final String REGEX_YEAR_MONTH_OPTIONAL = "^$|^\\d{4}-\\d{2}$";
 
+  /** 日付：yyyy-MM-dd 形式 */
+  public static final String REGEX_DATE = "^\\d{4}-\\d{2}-\\d{2}$";
+
+  /** グループ/チームコード：英数字とアンダースコアのみ */
+  public static final String REGEX_CODE = "^[A-Za-z0-9_]+$";
+
   // ---------------------------------------------------------------------------
   // 文字列長 (@Size)
   // ---------------------------------------------------------------------------
@@ -63,6 +69,15 @@ public final class ValidationConstants {
 
   /** 対応ログの最大文字数 */
   public static final int MAX_ESC_LOG_TEXT = 2000;
+
+  /** 氏名の最大文字数 */
+  public static final int MAX_NAME = 100;
+
+  /** グループ名/チーム名の最大文字数 */
+  public static final int MAX_GROUP_TEAM_NAME = 100;
+
+  /** グループコード/チームコードの最大文字数 */
+  public static final int MAX_CODE_LENGTH = 32;
 
   // ---------------------------------------------------------------------------
   // 提出・フィードバック期限

@@ -227,6 +227,20 @@ class ReportControllerTest {
                 .andExpect(jsonPath("$.resultCd").value("REPORT_409"));
     }
 
+    /** NG（EMP005）が月報作成を試みる → resultCd=AUTH_403 */
+    @Test
+    void create_denied_as_ng() throws Exception {
+        String token = getToken("EMP005", "pass");
+
+        mockMvc.perform(post("/api/v1/reports/create")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(buildCreateBody("2026-04")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultStatus").value("1"))
+                .andExpect(jsonPath("$.resultCd").value("AUTH_403"));
+    }
+
     /** conditions が null → バリデーションエラー（resultCd=VAL_001） */
     @Test
     void create_validation_missing_conditions() throws Exception {
