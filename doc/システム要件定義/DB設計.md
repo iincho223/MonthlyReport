@@ -146,7 +146,6 @@ erDiagram
     bigint author_user_id FK
     char report_month
     varchar status
-    varchar title
     tinyint delete_flag
     datetime updated_at
     varchar updated_by
@@ -332,7 +331,6 @@ FK: `team_code -> teams.team_code`
 |---|---|---|---|
 | report_id | char(26) | Y | ULID |
 | report_month | char(7) | Y | `yyyy-MM` |
-| title | varchar(100) | Y | タイトル |
 | sales_info | text | N | 営業情報 |
 | next_month_overtime_hours | smallint | N | 来月残業見込み |
 | next_month_overtime_reason | varchar(255) | N | 理由 |
@@ -575,7 +573,6 @@ alter table teams add constraint fk_teams_tl foreign key (tl_user_id) references
 create table reports (
   report_id char(26) not null,
   report_month char(7) not null,
-  title varchar(100) not null,
   sales_info text null,
   next_month_overtime_hours smallint null,
   next_month_overtime_reason varchar(255) null,

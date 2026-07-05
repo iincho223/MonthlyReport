@@ -56,7 +56,6 @@ public class InMemoryDataStore {
     ReportRecord seed = new ReportRecord();
     seed.setReportId(newReportId());
     seed.setMonth("2026-03");
-    seed.setTitle("今月の業務報告");
     seed.setSalesInfo("特になし");
     seed.setNextMonthOvertimeHours(20);
     seed.setNextMonthOvertimeReason("案件リリース対応");

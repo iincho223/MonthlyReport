@@ -56,8 +56,6 @@ public final class ResponseKeys {
   public static final String REPORT_ID = "reportId";
   /** 対象年月 */
   public static final String MONTH = "month";
-  /** タイトル */
-  public static final String TITLE = "title";
   /** 売上・商談情報 */
   public static final String SALES_INFO = "salesInfo";
   /** 来月見込み残業時間 */

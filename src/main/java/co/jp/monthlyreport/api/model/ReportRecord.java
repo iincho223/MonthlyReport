@@ -21,8 +21,6 @@ public class ReportRecord {
   private String reportId;
   /** 対象月 (yyyy-MM) */
   private String month;
-  /** タイトル */
-  private String title;
   /** 営業情報 */
   private String salesInfo;
   /** 来月見込み残業時間 */

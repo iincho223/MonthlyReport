@@ -73,7 +73,6 @@ public class ReportService {
       Map<String, Object> item = new HashMap<>();
       item.put(ResponseKeys.REPORT_ID, r.getReportId());
       item.put(ResponseKeys.MONTH, r.getMonth());
-      item.put(ResponseKeys.TITLE, r.getTitle());
       item.put(ResponseKeys.REPORTER_NAME, r.getReporterName());
       item.put(ResponseKeys.REPORTER_ID, r.getReporterId());
       item.put(ResponseKeys.AUTHOR_ROLE, r.getAuthorRole().name());
@@ -124,7 +123,6 @@ public class ReportService {
     Map<String, Object> params = new HashMap<>();
     params.put(ResponseKeys.REPORT_ID, report.getReportId());
     params.put(ResponseKeys.MONTH, report.getMonth());
-    params.put(ResponseKeys.TITLE, report.getTitle());
     params.put(ResponseKeys.SALES_INFO, report.getSalesInfo());
     params.put(ResponseKeys.NEXT_MONTH_OVERTIME_HOURS, report.getNextMonthOvertimeHours());
     params.put(ResponseKeys.NEXT_MONTH_OVERTIME_REASON, report.getNextMonthOvertimeReason());
@@ -165,7 +163,7 @@ public class ReportService {
 
     ReportRecord report = new ReportRecord();
     report.setReportId(dataStore.newReportId());
-    applyEditableFields(report, request.month(), request.title(), request.salesInfo(), request.nextMonthOvertimeHours(), request.nextMonthOvertimeReason(), request.thisMonthOvertimeHours(), request.thisMonthOvertimeReason(), request.conditions(), request.comments());
+    applyEditableFields(report, request.month(), request.salesInfo(), request.nextMonthOvertimeHours(), request.nextMonthOvertimeReason(), request.thisMonthOvertimeHours(), request.thisMonthOvertimeReason(), request.conditions(), request.comments());
     report.setAuthorUserId(user.userId());
     report.setReporterId(user.employeeNo());
     report.setReporterName(user.name());
@@ -201,7 +199,7 @@ public class ReportService {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.REPORT_NO_UPDATE_PERMISSION));
     }
 
-    applyEditableFields(report, request.month(), request.title(), request.salesInfo(), request.nextMonthOvertimeHours(), request.nextMonthOvertimeReason(), request.thisMonthOvertimeHours(), request.thisMonthOvertimeReason(), request.conditions(), request.comments());
+    applyEditableFields(report, request.month(), request.salesInfo(), request.nextMonthOvertimeHours(), request.nextMonthOvertimeReason(), request.thisMonthOvertimeHours(), request.thisMonthOvertimeReason(), request.conditions(), request.comments());
     report.setUpdatedAt(OffsetDateTime.now());
     dataStore.saveReport(report);
     return Map.of(ResponseKeys.REPORT_ID, report.getReportId(), ResponseKeys.UPDATED, true);
@@ -375,7 +373,6 @@ public class ReportService {
    *
    * @param report 更新対象月報
    * @param month 対象月
-   * @param title タイトル
    * @param salesInfo 売上情報
    * @param nextMonthOvertimeHours 来月見込み残業時間
    * @param nextMonthOvertimeReason 来月見込み残業理由
@@ -387,7 +384,6 @@ public class ReportService {
   private void applyEditableFields(
       ReportRecord report,
       String month,
-      String title,
       String salesInfo,
       Integer nextMonthOvertimeHours,
       String nextMonthOvertimeReason,
@@ -396,7 +392,6 @@ public class ReportService {
       Map<String, String> conditions,
       String comments) {
     report.setMonth(month);
-    report.setTitle(title);
     report.setSalesInfo(salesInfo);
     report.setNextMonthOvertimeHours(nextMonthOvertimeHours);
     report.setNextMonthOvertimeReason(nextMonthOvertimeReason);

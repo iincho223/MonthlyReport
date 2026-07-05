@@ -36,9 +36,6 @@ public final class ValidationConstants {
   /** パスワードの最大文字数（ハッシュ長を想定） */
   public static final int MAX_PASSWORD = 128;
 
-  /** 月報タイトルの最大文字数 */
-  public static final int MAX_REPORT_TITLE = 100;
-
   /** フィードバックコメントの最大文字数 */
   public static final int MAX_FEEDBACK_COMMENT = 2000;
 

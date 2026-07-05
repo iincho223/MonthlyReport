@@ -36,7 +36,6 @@
 ```json
 {
   "reportId": "01HXYZ...",
-  "title": "今月の業務報告（更新）",
   "salesInfo": "案件A対応完了",
   "nextMonthOvertimeHours": 10,
   "nextMonthOvertimeReason": "保守対応",
@@ -60,7 +59,6 @@
 | 項目 | 必須 | ルール |
 |---|---|---|
 | reportId | 必須 | - |
-| title | 必須 | 最大100文字 |
 | salesInfo | 任意 | 最大500文字 |
 | nextMonthOvertimeHours | 任意 | 0〜300 |
 | nextMonthOvertimeReason | 任意 | 最大255文字 |

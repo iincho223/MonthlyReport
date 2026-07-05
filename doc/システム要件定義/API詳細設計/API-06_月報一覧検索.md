@@ -61,7 +61,6 @@
     {
       "reportId": "01HXYZ...",
       "month": "2026-03",
-      "title": "今月の業務報告",
       "reporterName": "山田 健太",
       "reporterId": "EMP004",
       "authorRole": "TM",

@@ -1,0 +1,43 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Asia/Tokyo
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - monthlyreport-net
+
+  # 現在の実装(InMemoryDataStore)はDBに接続しないため、
+  # dbサービスはDB設計.md準拠のスキーマ検証・将来のJPA実装検証用として用意する。
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: monthlyreport
+      MARIADB_USER: monthlyreport
+      MARIADB_PASSWORD: monthlyreport
+      MARIADB_ROOT_PASSWORD: root
+      TZ: Asia/Tokyo
+    ports:
+      - "3306:3306"
+    volumes:
+      - monthlyreport-db-data:/var/lib/mysql
+      - ./docker/mariadb/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - monthlyreport-net
+
+networks:
+  monthlyreport-net:
+
+volumes:
+  monthlyreport-db-data:

@@ -143,7 +143,6 @@
       id: item.reportId,
       reportId: item.reportId,
       month: item.month,
-      title: masked ? maskText(item.title) : item.title,
       reporterName: toMaskedName(item.reporterName, masked),
       reporterId: item.reporterId,
       authorRole: item.authorRole,
@@ -165,7 +164,6 @@
       id: item.reportId,
       reportId: item.reportId,
       month: item.month,
-      title: masked ? maskText(item.title) : item.title,
       salesInfo: masked ? maskText(item.salesInfo) : item.salesInfo,
       nextMonthOvertime: item.nextMonthOvertimeHours == null ? "" : String(item.nextMonthOvertimeHours),
       nextMonthOvertimeReason: masked ? maskText(item.nextMonthOvertimeReason) : item.nextMonthOvertimeReason,
@@ -193,7 +191,6 @@
   function toReportPayload(formData) {
     return {
       month: formData.month,
-      title: formData.title,
       salesInfo: formData.salesInfo,
       nextMonthOvertimeHours: Number(formData.nextMonthOvertime || 0),
       nextMonthOvertimeReason: formData.nextMonthOvertimeReason,
@@ -321,7 +318,6 @@
   function defaultReportForm() {
     return {
       month: new Date().toISOString().slice(0, 7),
-      title: "",
       salesInfo: "特になし",
       nextMonthOvertime: "",
       nextMonthOvertimeReason: "",
@@ -464,9 +460,9 @@
               <div class="report-month-chip">{{ report.month }}</div>
               <span :class="report.feedbackRegistered ? 'status-chip status-checked' : 'status-chip status-waiting'">{{ report.feedbackRegistered ? 'Checked' : 'Waiting' }}</span>
             </div>
-            <h3 class="report-title">{{ report.title || '無題の報告' }}</h3>
+            <h3 class="report-title">{{ report.reporterName || '匿名' }}</h3>
             <div class="report-card-foot">
-              <span class="report-author">{{ report.reporterName || '匿名' }}</span>
+              <span class="report-author">{{ report.team || report.office }}</span>
               <i data-lucide="chevron-right" class="icon-xs"></i>
             </div>
           </article>
@@ -513,16 +509,8 @@
 
         <div class="form-stack-blocks">
           <article class="section-card form-block">
-            <div class="two-col-grid">
-              <div>
-                <label class="field-label">報告月</label>
-                <input v-model="formData.month" type="month" class="input-shell input-strong" />
-              </div>
-              <div>
-                <label class="field-label">タイトル</label>
-                <input v-model="formData.title" type="text" class="input-shell input-strong" placeholder="例: 今月の業務報告" />
-              </div>
-            </div>
+            <label class="field-label">報告月</label>
+            <input v-model="formData.month" type="month" class="input-shell input-strong" />
           </article>
 
           <article class="section-card form-block">
@@ -567,7 +555,7 @@
         <div class="form-actions-fixed">
           <div class="form-actions-inner">
             <button @click="$emit('cancel')" class="action-btn action-secondary action-fill">キャンセル</button>
-            <button @click="save" :disabled="!formData.title" class="action-btn action-primary action-fill">報告書を提出</button>
+            <button @click="save" class="action-btn action-primary action-fill">報告書を提出</button>
           </div>
         </div>
       </section>
@@ -613,7 +601,7 @@
 
         <div class="detail-grid">
           <article class="section-card detail-main">
-            <h2 class="detail-title">{{ report.title || '報告書' }}</h2>
+            <h2 class="detail-title">{{ report.reporterName || '報告書' }}</h2>
             <p class="detail-meta">{{ report.month }} / {{ report.office }} / {{ report.team }}</p>
 
             <section class="detail-section">

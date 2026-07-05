@@ -37,7 +37,6 @@
 ```json
 {
   "month": "2026-03",
-  "title": "今月の業務報告",
   "salesInfo": "特になし",
   "nextMonthOvertimeHours": 20,
   "nextMonthOvertimeReason": "案件リリース対応",
@@ -61,7 +60,6 @@
 | 項目 | 必須 | ルール |
 |---|---|---|
 | month | 必須 | `yyyy-MM` 形式 |
-| title | 必須 | 最大100文字 |
 | salesInfo | 任意 | 最大500文字 |
 | nextMonthOvertimeHours | 任意 | 0-300（単位: 時間） |
 | nextMonthOvertimeReason | 任意 | 最大255文字 |

@@ -81,7 +81,6 @@ class ReportControllerTest {
         return """
                 {
                   "month": "%s",
-                  "title": "テスト月報",
                   "salesInfo": "特になし",
                   "nextMonthOvertimeHours": 10,
                   "nextMonthOvertimeReason": "来月の理由",
@@ -252,7 +251,6 @@ class ReportControllerTest {
                         .content("""
                                 {
                                   "month": "2026-12",
-                                  "title": "バリデーションテスト",
                                   "nextMonthOvertimeHours": 0,
                                   "thisMonthOvertimeHours": 0,
                                   "conditions": null
@@ -280,7 +278,6 @@ class ReportControllerTest {
                                 {
                                   "reportId": "%s",
                                   "month": "2026-06",
-                                  "title": "更新後タイトル",
                                   "salesInfo": "更新済み",
                                   "nextMonthOvertimeHours": 15,
                                   "nextMonthOvertimeReason": "更新後の理由",
@@ -317,7 +314,6 @@ class ReportControllerTest {
                                 {
                                   "reportId": "%s",
                                   "month": "2026-03",
-                                  "title": "不正更新",
                                   "nextMonthOvertimeHours": 0,
                                   "thisMonthOvertimeHours": 0,
                                   "conditions": {

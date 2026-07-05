@@ -211,7 +211,6 @@
     {
       "reportId": "01HXYZ...",
       "month": "2026-03",
-      "title": "今月の業務報告",
       "reporterName": "山田 健太",
       "reporterId": "EMP004",
       "authorRole": "TM",
@@ -246,7 +245,6 @@
 {
   "reportId": "01HXYZ...",
   "month": "2026-03",
-  "title": "今月の業務報告",
   "salesInfo": "特になし",
   "nextMonthOvertimeHours": 20,
   "nextMonthOvertimeReason": "案件リリース対応",
@@ -290,7 +288,6 @@
 ```json
 {
   "month": "2026-03",
-  "title": "今月の業務報告",
   "salesInfo": "特になし",
   "nextMonthOvertimeHours": 20,
   "nextMonthOvertimeReason": "案件リリース対応",
@@ -328,7 +325,6 @@
 ```json
 {
   "reportId": "01HXYZ...",
-  "title": "今月の業務報告(更新)",
   "salesInfo": "案件A対応完了",
   "nextMonthOvertimeHours": 10,
   "nextMonthOvertimeReason": "保守対応",
@@ -872,7 +868,6 @@
 | employeeNo | 必須、英数字 |
 | password | 必須 |
 | month | 必須、`yyyy-MM` |
-| title | 必須、最大100 |
 | overtimeHours | 0-300 |
 | overtimeReason | 最大255 |
 | feedbackComment | 最大2000 |

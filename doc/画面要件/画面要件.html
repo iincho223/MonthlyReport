@@ -20,12 +20,25 @@
 
         const { createApp, ref, reactive, onMounted, computed, watch, nextTick, onUpdated } = Vue;
 
+        // ロール定義: 業務仕様書 2.2 / 5.1 準拠（NG/TM/TL/GL/OM/SP/SM/SA の8種）
         const ROLES = {
-            REPORTER: { id: 'REPORTER', label: 'メンバー', rank: 0 },
-            TL: { id: 'TL', label: 'TL (Team Leader)', rank: 1 },
-            GL: { id: 'GL', label: 'GL (Group Leader)', rank: 2 },
-            OM: { id: 'OM', label: 'OM (Ops Manager)', rank: 3 },
+            NG: { id: 'NG', label: '新卒', rank: 0 },
+            TM: { id: 'TM', label: 'メンバー', rank: 1 },
+            TL: { id: 'TL', label: 'チームリーダー', rank: 2 },
+            GL: { id: 'GL', label: 'グループリーダー', rank: 3 },
+            OM: { id: 'OM', label: 'オフィスマネージャー', rank: 4 },
+            SP: { id: 'SP', label: '営業担当者', rank: -1 },
+            SM: { id: 'SM', label: '支店長', rank: -1 },
+            SA: { id: 'SA', label: 'システム管理者', rank: -1 }
         };
+
+        // 業務仕様書 2.3〜2.6 のロール別可視範囲をロール集合として定義
+        const REPORT_ROLES = ['TM', 'TL', 'GL', 'OM'];
+        const ESCALATION_ACCESS_ROLES = ['TL', 'GL', 'OM', 'SP', 'SM', 'SA'];
+        const ESCALATION_CREATE_ROLES = ['TL', 'GL', 'OM'];
+        const FEEDBACK_ROLES = ['TL', 'GL', 'OM'];
+        const USER_MANAGE_ROLES = ['GL', 'OM', 'SP', 'SM', 'SA'];
+        const ORG_MANAGE_ROLES = ['GL', 'OM', 'SA'];
 
         const CONDITION_ITEMS = [
             { id: 'physical', label: '体調' },
@@ -56,12 +69,19 @@
             HIGH: { id: 'HIGH', label: '高', color: 'text-red-500' }
         };
 
-        // 初期シード用モックデータ
+        // 初期シード用モックデータ（8ロールを一通り確認できる構成）
         const MOCK_API_DATA = {
-            'EMP001': { name: '田中 太郎', employeeId: 'EMP001', password: 'pass', role: 'OM', office: '東京本社', team: '管理グループ' },
-            'EMP002': { name: '鈴木 一郎', employeeId: 'EMP002', password: 'pass', role: 'GL', office: '大阪支社', team: '関西第一営業部' },
+            'EMP001': { name: '田中 太郎', employeeId: 'EMP001', password: 'pass', role: 'OM', office: '東京本社', team: 'チームA' },
+            'EMP002': { name: '鈴木 一郎', employeeId: 'EMP002', password: 'pass', role: 'GL', office: '東京本社', team: 'チームA' },
             'EMP003': { name: '佐藤 花子', employeeId: 'EMP003', password: 'pass', role: 'TL', office: '東京本社', team: 'チームA' },
-            'EMP004': { name: '山田 健太', employeeId: 'EMP004', password: 'pass', role: 'REPORTER', office: '東京本社', team: 'チームA' }
+            'EMP004': { name: '山田 健太', employeeId: 'EMP004', password: 'pass', role: 'TM', office: '東京本社', team: 'チームA' },
+            'EMP005': { name: '新人 桜', employeeId: 'EMP005', password: 'pass', role: 'NG', office: '東京本社', team: 'チームA' },
+            'EMP006': { name: '高橋 実', employeeId: 'EMP006', password: 'pass', role: 'GL', office: '大阪支社', team: '関西チームA' },
+            'EMP007': { name: '伊藤 直樹', employeeId: 'EMP007', password: 'pass', role: 'TL', office: '大阪支社', team: '関西チームA' },
+            'EMP008': { name: '渡辺 学', employeeId: 'EMP008', password: 'pass', role: 'TM', office: '大阪支社', team: '関西チームA' },
+            'EMP009': { name: '中村 誠', employeeId: 'EMP009', password: 'pass', role: 'SP', office: '大阪支社', team: '' },
+            'EMP010': { name: '小林 修', employeeId: 'EMP010', password: 'pass', role: 'SM', office: '大阪支社', team: '' },
+            'EMP011': { name: 'システム 管理者', employeeId: 'EMP011', password: 'pass', role: 'SA', office: '', team: '' }
         };
 
         const App = {
@@ -72,14 +92,16 @@
                 const escalations = ref([]);
                 const employees = ref([]);
                 const offices = ref([]);
+                const groups = ref([]);
                 const teams = ref([]);
 
                 const loading = ref(true);
-                const view = ref('reportList'); 
+                const view = ref('reportList');
                 const currentItem = ref(null);
                 const notification = ref(null);
                 const isAILoading = ref(false);
                 const troubleLogText = ref("");
+                const feedbackDraft = ref("");
 
                 const DEADLINE_DAY = 5;
                 const currentMonthStr = new Date().toISOString().slice(0, 7);
@@ -93,22 +115,30 @@
                 });
 
                 const troubleFormData = reactive({
-                    targetEmployeeName: '', targetTeam: '', title: '', description: '', severity: 'MEDIUM', status: 'PENDING', history: []
+                    targetEmployeeName: '', targetTeam: '', title: '', description: '', severity: 'MEDIUM', status: 'PENDING',
+                    dueDate: '', resolvedDate: '', assigneeId: '', history: []
                 });
 
                 const userFormData = reactive({
-                    id: '', employeeId: '', name: '', password: '', role: 'REPORTER', office: '', team: ''
+                    id: '', employeeId: '', name: '', password: '', role: 'TM', office: '', team: ''
                 });
 
-                const officeFormData = reactive({
-                    id: '', name: '', glId: ''
+                const groupFormData = reactive({
+                    id: '', code: '', name: '', office: '', glId: ''
                 });
 
                 const teamFormData = reactive({
-                    id: '', name: '', office: '', tlId: ''
+                    id: '', code: '', name: '', group: '', tlId: ''
                 });
 
                 const loginData = reactive({ employeeId: '', password: '' });
+
+                // --- 検索・絞り込みステート ---
+                const reportFilters = reactive({ month: '', status: 'ALL' });
+                const escalationFilters = reactive({ status: 'ALL' });
+                const userSearch = reactive({ keyword: '', role: '', office: '' });
+                const groupSearch = reactive({ name: '', office: '' });
+                const teamSearch = reactive({ name: '', group: '' });
 
                 // --- ユーティリティ ---
                 const showNotification = (msg) => {
@@ -146,18 +176,29 @@
                                 const newRef = doc(empRef);
                                 batch.set(newRef, { ...emp, id: newRef.id, createdAt: serverTimestamp() });
                             });
-                            // グループ（営業所）シード
+                            // 営業所シード（営業所自体はマスタ固定、本画面からの追加/削除は行わない）
                             const offRef = collection(db, 'artifacts', appId, 'public', 'data', 'offices');
                             ['東京本社', '大阪支社'].forEach(off => {
                                 const newRef = doc(offRef);
-                                let glId = off === '大阪支社' ? 'EMP002' : 'EMP001'; 
-                                batch.set(newRef, { name: off, glId, id: newRef.id, createdAt: serverTimestamp() });
+                                batch.set(newRef, { name: off, id: newRef.id, createdAt: serverTimestamp() });
                             });
-                            // チームシード
+                            // グループシード（営業所の配下、GLが統括）
+                            const groupRef = collection(db, 'artifacts', appId, 'public', 'data', 'groups');
+                            [
+                                { code: 'GRP001', n: '東京第一グループ', o: '東京本社', gl: 'EMP002' },
+                                { code: 'GRP002', n: '大阪営業グループ', o: '大阪支社', gl: 'EMP006' }
+                            ].forEach(g => {
+                                const newRef = doc(groupRef);
+                                batch.set(newRef, { code: g.code, name: g.n, office: g.o, glId: g.gl, id: newRef.id, createdAt: serverTimestamp() });
+                            });
+                            // チームシード（グループの配下、TLが統括）
                             const teamRef = collection(db, 'artifacts', appId, 'public', 'data', 'teams');
-                            [{ n: '管理グループ', o: '東京本社', tl: 'EMP001' }, { n: 'チームA', o: '東京本社', tl: 'EMP003' }, { n: '関西第一営業部', o: '大阪支社', tl: 'EMP002' }].forEach(t => {
+                            [
+                                { code: 'TEAM001', n: 'チームA', g: '東京第一グループ', o: '東京本社', tl: 'EMP003' },
+                                { code: 'TEAM002', n: '関西チームA', g: '大阪営業グループ', o: '大阪支社', tl: 'EMP007' }
+                            ].forEach(t => {
                                 const newRef = doc(teamRef);
-                                batch.set(newRef, { name: t.n, office: t.o, tlId: t.tl, id: newRef.id, createdAt: serverTimestamp() });
+                                batch.set(newRef, { code: t.code, name: t.n, group: t.g, office: t.o, tlId: t.tl, id: newRef.id, createdAt: serverTimestamp() });
                             });
                             await batch.commit();
                         }
@@ -187,7 +228,7 @@
 
                 watch([user, userProfile], ([u, p]) => {
                     if (!u || !p) return;
-                    
+
                     // Master Data Subscriptions
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'employees'), (snap) => {
                         employees.value = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -195,30 +236,47 @@
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'offices'), (snap) => {
                         offices.value = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                     });
+                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'groups'), (snap) => {
+                        groups.value = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    });
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), (snap) => {
                         teams.value = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                     });
 
-                    // Reports Subscription
+                    // Reports Subscription（業務仕様書 2.3 準拠のロール別可視範囲）
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'reports'), (snap) => {
                         let data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                        if (p.role === 'REPORTER') data = data.filter(r => r.authorId === u.uid);
-                        else if (p.role === 'TL') data = data.filter(r => r.authorId === u.uid || r.team === p.team);
-                        else if (p.role === 'GL') data = data.filter(r => r.authorId === u.uid || r.office === p.office);
+                        const role = p.role;
+                        if (role === 'TM') data = data.filter(r => r.authorId === u.uid);
+                        else if (role === 'TL') data = data.filter(r => r.authorId === u.uid || r.team === p.team);
+                        else if (role === 'GL') {
+                            const myGroupObj = groups.value.find(g => g.glId === p.employeeId);
+                            const myTeams = myGroupObj ? teams.value.filter(t => t.group === myGroupObj.name).map(t => t.name) : [p.team];
+                            data = data.filter(r => r.authorId === u.uid || myTeams.includes(r.team));
+                        }
+                        else if (role === 'OM') data = data.filter(r => r.authorId === u.uid || r.office === p.office);
+                        else if (role === 'SP') {
+                            const myTargets = escalations.value.filter(e => e.assigneeId === p.employeeId).map(e => e.targetEmployeeName);
+                            data = data.filter(r => myTargets.includes(r.reporterName));
+                        }
+                        else if (role === 'SM') data = data.filter(r => r.office === p.office);
+                        else if (role === 'SA') { /* 全件（表示時にマスク） */ }
+                        else data = []; // NG: 月報アクセス不可
                         reports.value = data.sort((a, b) => b.month.localeCompare(a.month));
                     });
 
-                    // Escalations Subscription
-                    if (ROLES[p.role]?.rank > 0) {
+                    // Escalations Subscription（業務仕様書 2.4 準拠のロール別可視範囲）
+                    if (ESCALATION_ACCESS_ROLES.includes(p.role)) {
                         onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'escalations'), (snap) => {
                             let data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                            if (p.role === 'TL') data = data.filter(e => e.targetTeam === p.team || e.createdByUid === u.uid);
-                            else if (p.role === 'GL') {
-                                const myTeams = teams.value.filter(t => t.office === p.office).map(t => t.name);
-                                data = data.filter(e => myTeams.includes(e.targetTeam) || e.createdByUid === u.uid);
-                            }
-                            escalations.value = data.sort((a, b) => b.updatedAt?.seconds - a.updatedAt?.seconds);
+                            if (p.role === 'TL') data = data.filter(e => e.team === p.team || e.createdByUid === u.uid);
+                            else if (p.role === 'GL' || p.role === 'SM') data = data.filter(e => e.office === p.office);
+                            else if (p.role === 'SP') data = data.filter(e => e.assigneeId === p.employeeId);
+                            // OM・SA: 全件（SAは表示時にマスク）
+                            escalations.value = data.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
                         });
+                    } else {
+                        escalations.value = [];
                     }
                 }, { immediate: true });
 
@@ -226,41 +284,129 @@
                 const activeOffices = computed(() => offices.value.map(o => o.name));
                 const activeTeams = computed(() => teams.value.map(t => t.name));
 
+                const isBlockedRole = computed(() => userProfile.value?.role === 'NG');
+                const canSubmitReport = computed(() => REPORT_ROLES.includes(userProfile.value?.role));
+                const canAccessEscalation = computed(() => ESCALATION_ACCESS_ROLES.includes(userProfile.value?.role));
+                const canCreateEscalation = computed(() => ESCALATION_CREATE_ROLES.includes(userProfile.value?.role));
+                const canGiveFeedbackRole = computed(() => FEEDBACK_ROLES.includes(userProfile.value?.role));
+                const canManageUsers = computed(() => USER_MANAGE_ROLES.includes(userProfile.value?.role));
+                const canManageOrg = computed(() => ORG_MANAGE_ROLES.includes(userProfile.value?.role));
+                const isMasked = computed(() => userProfile.value?.role === 'SA');
+                const maskText = (text) => (isMasked.value && text) ? '●●●●●（マスク表示）' : text;
+
+                // GLが統括するグループ
+                const myGroup = computed(() => groups.value.find(g => g.glId === userProfile.value?.employeeId) || null);
+
                 // Form dynamics
                 const availableTeamsForUserForm = computed(() => {
-                    return teams.value.filter(t => t.office === userFormData.office).map(t => t.name);
+                    let list = teams.value.filter(t => t.office === userFormData.office);
+                    if (userProfile.value?.role === 'GL') list = list.filter(t => t.group === myGroup.value?.name);
+                    return list.map(t => t.name);
                 });
 
-                // Permissions
-                const canManageUsersAndGroups = computed(() => userProfile.value?.role === 'OM' || userProfile.value?.role === 'GL');
-                
-                const filteredEmployees = computed(() => {
+                const registrableRoles = computed(() => {
+                    const role = userProfile.value?.role;
+                    if (role === 'SA') return Object.values(ROLES);
+                    if (role === 'SP' || role === 'SM') return [ROLES.NG, ROLES.TM, ROLES.SP, ROLES.SM];
+                    return [ROLES.NG, ROLES.TM]; // GL / OM
+                });
+
+                const userManagementScope = computed(() => {
                     if (!userProfile.value) return [];
-                    if (userProfile.value.role === 'OM') return employees.value;
-                    if (userProfile.value.role === 'GL') return employees.value.filter(e => e.office === userProfile.value.office);
+                    const p = userProfile.value;
+                    if (p.role === 'SA') return employees.value;
+                    if (p.role === 'OM') return employees.value.filter(e => e.office === p.office);
+                    if (p.role === 'SP' || p.role === 'SM') return employees.value.filter(e => e.office === p.office && ['NG', 'TM', 'SP', 'SM'].includes(e.role));
+                    if (p.role === 'GL') {
+                        const myTeams = teams.value.filter(t => t.group === myGroup.value?.name).map(t => t.name);
+                        return employees.value.filter(e => myTeams.includes(e.team));
+                    }
                     return [];
                 });
 
-                const filteredAdminTeams = computed(() => {
+                const filteredEmployees = computed(() => userManagementScope.value.filter(e => {
+                    const kw = userSearch.keyword.trim().toLowerCase();
+                    const matchesKeyword = !kw || e.employeeId.toLowerCase().includes(kw) || e.name.toLowerCase().includes(kw);
+                    const matchesRole = !userSearch.role || e.role === userSearch.role;
+                    const matchesOffice = !userSearch.office || e.office === userSearch.office;
+                    return matchesKeyword && matchesRole && matchesOffice;
+                }));
+
+                const groupManagementScope = computed(() => {
                     if (!userProfile.value) return [];
-                    if (userProfile.value.role === 'OM') return teams.value;
-                    if (userProfile.value.role === 'GL') return teams.value.filter(t => t.office === userProfile.value.office);
+                    const p = userProfile.value;
+                    if (p.role === 'SA') return groups.value;
+                    if (p.role === 'OM') return groups.value.filter(g => g.office === p.office);
+                    if (p.role === 'GL') return groups.value.filter(g => g.glId === p.employeeId);
                     return [];
                 });
 
+                const filteredGroups = computed(() => groupManagementScope.value.filter(g => {
+                    const kw = groupSearch.name.trim();
+                    const matchesName = !kw || g.name.includes(kw);
+                    const matchesOffice = !groupSearch.office || g.office === groupSearch.office;
+                    return matchesName && matchesOffice;
+                }));
+
+                const teamManagementScope = computed(() => {
+                    if (!userProfile.value) return [];
+                    const p = userProfile.value;
+                    if (p.role === 'SA') return teams.value;
+                    if (p.role === 'OM') return teams.value.filter(t => t.office === p.office);
+                    if (p.role === 'GL') return teams.value.filter(t => t.group === myGroup.value?.name);
+                    return [];
+                });
+
+                const filteredTeams = computed(() => teamManagementScope.value.filter(t => {
+                    const kw = teamSearch.name.trim();
+                    const matchesName = !kw || t.name.includes(kw);
+                    const matchesGroup = !teamSearch.group || t.group === teamSearch.group;
+                    return matchesName && matchesGroup;
+                }));
+
+                const canCreateGroup = computed(() => ['OM', 'SA'].includes(userProfile.value?.role));
+
+                const availableGroupsForTeamForm = computed(() => {
+                    if (userProfile.value?.role === 'GL') return myGroup.value ? [myGroup.value.name] : [];
+                    if (userProfile.value?.role === 'OM') return groups.value.filter(g => g.office === userProfile.value.office).map(g => g.name);
+                    return groups.value.map(g => g.name); // SA
+                });
+
+                // 未提出者モニタリング・KPI（TL/GL/OM のみ、TMのみを集計対象とする）
                 const unsubmittedStatus = computed(() => {
-                    if (!userProfile.value || ROLES[userProfile.value.role]?.rank === 0) return null;
-                    const allUsers = employees.value.filter(u => {
-                        if (userProfile.value.role === 'OM') return true;
-                        if (userProfile.value.role === 'GL') return u.office === userProfile.value.office;
-                        if (userProfile.value.role === 'TL') return u.team === userProfile.value.team;
+                    if (!userProfile.value || !FEEDBACK_ROLES.includes(userProfile.value.role)) return null;
+                    const p = userProfile.value;
+                    const scopeMembers = employees.value.filter(e => {
+                        if (e.role !== 'TM') return false;
+                        if (p.role === 'TL') return e.team === p.team;
+                        if (p.role === 'GL') {
+                            const myTeams = teams.value.filter(t => t.group === myGroup.value?.name).map(t => t.name);
+                            return myTeams.includes(e.team);
+                        }
+                        if (p.role === 'OM') return e.office === p.office;
                         return false;
-                    }).filter(u => ROLES[u.role]?.rank === 0);
-                    const submittedUserIds = reports.value.filter(r => r.month === currentMonthStr).map(r => r.reporterId);
-                    const unsubmitted = allUsers.filter(u => !submittedUserIds.includes(u.employeeId));
-                    const rate = allUsers.length > 0 ? Math.round(((allUsers.length - unsubmitted.length) / allUsers.length) * 100) : 100;
-                    return { list: unsubmitted, rate, total: allUsers.length };
+                    });
+                    const submittedIds = reports.value.filter(r => r.month === currentMonthStr).map(r => r.reporterId);
+                    const unsubmitted = scopeMembers.filter(e => !submittedIds.includes(e.employeeId));
+                    const rate = scopeMembers.length > 0 ? Math.round(((scopeMembers.length - unsubmitted.length) / scopeMembers.length) * 100) : 100;
+                    return { list: unsubmitted, rate, total: scopeMembers.length };
                 });
+
+                // 未回答報告数（自分以外 かつ 回答未登録、TL/GL/OM のみ）
+                const pendingFeedbackCount = computed(() => {
+                    if (!userProfile.value || !FEEDBACK_ROLES.includes(userProfile.value.role)) return 0;
+                    return reports.value.filter(r => r.authorId !== user.value?.uid && !r.adminFeedback).length;
+                });
+
+                const filteredReports = computed(() => reports.value.filter(r => {
+                    const matchesMonth = !reportFilters.month || r.month === reportFilters.month;
+                    let matchesStatus = true;
+                    if (reportFilters.status === 'PENDING_FEEDBACK') matchesStatus = !r.adminFeedback;
+                    else if (reportFilters.status === 'FEEDBACKED') matchesStatus = !!r.adminFeedback;
+                    return matchesMonth && matchesStatus;
+                }));
+
+                const filteredEscalations = computed(() => escalations.value.filter(e => escalationFilters.status === 'ALL' || e.status === escalationFilters.status));
 
                 const isSelfSubmitted = computed(() => reports.value.some(r => r.month === currentMonthStr && r.authorId === user.value?.uid));
                 const daysUntilDeadline = computed(() => {
@@ -268,6 +414,28 @@
                     const deadline = new Date(today.getFullYear(), today.getMonth(), DEADLINE_DAY);
                     if (today > deadline) return 0;
                     return Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                });
+
+                // 回答（フィードバック）は TL以上かつ他者の月報のみ、報告月の翌月5日まで
+                const canGiveFeedback = computed(() => {
+                    if (!currentItem.value || !userProfile.value) return false;
+                    return FEEDBACK_ROLES.includes(userProfile.value.role) && currentItem.value.authorId !== user.value?.uid;
+                });
+                const feedbackDeadlinePassed = computed(() => {
+                    if (!currentItem.value) return false;
+                    const [y, m] = currentItem.value.month.split('-').map(Number);
+                    const deadline = new Date(y, m, DEADLINE_DAY, 23, 59, 59); // 報告月の翌月DEADLINE_DAY日まで
+                    return new Date() > deadline;
+                });
+
+                // エスカレーション編集可否: 起票者本人／自チーム(TL)／担当案件(SP)／GL・SM・OM・SA
+                const canEditEscalation = computed(() => {
+                    if (!currentItem.value || !userProfile.value) return false;
+                    const role = userProfile.value.role;
+                    if (['GL', 'SM', 'OM', 'SA'].includes(role)) return true;
+                    if (role === 'TL') return currentItem.value.createdByUid === user.value?.uid || currentItem.value.team === userProfile.value.team;
+                    if (role === 'SP') return currentItem.value.assigneeId === userProfile.value.employeeId;
+                    return false;
                 });
 
                 // --- Methods ---
@@ -279,10 +447,10 @@
                         const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'employees'), where('employeeId', '==', cleanId));
                         const snap = await getDocs(q);
                         if (snap.empty) throw new Error('社員番号が見つかりません');
-                        
+
                         const data = snap.docs[0].data();
                         if (data.password !== cleanPass) throw new Error('パスワードが間違っています');
-                        
+
                         await setDoc(doc(db, 'artifacts', appId, 'users', user.value.uid, 'profile', 'data'), data);
                         userProfile.value = data;
                     } catch (e) { showNotification(e.message); }
@@ -292,30 +460,39 @@
                 const setView = (v, item = null) => {
                     view.value = v;
                     currentItem.value = item;
-                    
+
                     if (v === 'reportForm') {
                         if (item) Object.assign(reportFormData, JSON.parse(JSON.stringify(item)));
-                        else Object.assign(reportFormData, { 
+                        else Object.assign(reportFormData, {
                             month: currentMonthStr, title: '', salesInfo: '特になし', nextMonthOvertime: '', nextMonthOvertimeReason: '',
-                            thisMonthOvertime: '', thisMonthOvertimeReason: '', comments: '', 
-                            condition: Object.fromEntries(CONDITION_ITEMS.map(i => [i.id, '○'])) 
+                            thisMonthOvertime: '', thisMonthOvertimeReason: '', comments: '',
+                            condition: Object.fromEntries(CONDITION_ITEMS.map(i => [i.id, '○']))
                         });
                     }
+                    if (v === 'reportDetail') feedbackDraft.value = '';
                     if (v === 'troubleForm') {
                         if (item) Object.assign(troubleFormData, JSON.parse(JSON.stringify(item)));
-                        else Object.assign(troubleFormData, { targetEmployeeName: '', targetTeam: userProfile.value?.team || activeTeams.value[0], title: '', description: '', severity: 'MEDIUM', status: 'PENDING', history: [] });
+                        else Object.assign(troubleFormData, {
+                            targetEmployeeName: '', targetTeam: userProfile.value?.team || activeTeams.value[0], title: '', description: '',
+                            severity: 'MEDIUM', status: 'PENDING', dueDate: '', resolvedDate: '', assigneeId: '', history: []
+                        });
                     }
                     if (v === 'adminUserForm') {
                         if (item) Object.assign(userFormData, JSON.parse(JSON.stringify(item)));
-                        else Object.assign(userFormData, { id: '', employeeId: '', name: '', password: '', role: 'REPORTER', office: userProfile.value.role === 'GL' ? userProfile.value.office : activeOffices.value[0], team: '' });
+                        else Object.assign(userFormData, {
+                            id: '', employeeId: '', name: '', password: '',
+                            role: registrableRoles.value[0]?.id || 'TM',
+                            office: userProfile.value.role === 'SA' ? activeOffices.value[0] : userProfile.value.office,
+                            team: ''
+                        });
                     }
-                    if (v === 'adminOfficeForm') {
-                        if (item) Object.assign(officeFormData, JSON.parse(JSON.stringify(item)));
-                        else Object.assign(officeFormData, { id: '', name: '', glId: '' });
+                    if (v === 'adminGroupForm') {
+                        if (item) Object.assign(groupFormData, JSON.parse(JSON.stringify(item)));
+                        else Object.assign(groupFormData, { id: '', code: '', name: '', office: userProfile.value.role === 'OM' ? userProfile.value.office : activeOffices.value[0], glId: '' });
                     }
                     if (v === 'adminTeamForm') {
                         if (item) Object.assign(teamFormData, JSON.parse(JSON.stringify(item)));
-                        else Object.assign(teamFormData, { id: '', name: '', office: userProfile.value.role === 'GL' ? userProfile.value.office : activeOffices.value[0], tlId: '' });
+                        else Object.assign(teamFormData, { id: '', code: '', name: '', group: availableGroupsForTeamForm.value[0] || '', tlId: '' });
                     }
                     nextTick(() => lucide.createIcons());
                 };
@@ -323,7 +500,7 @@
                 const saveReport = async () => {
                     if (!user.value || !userProfile.value) return;
                     const refCol = collection(db, 'artifacts', appId, 'public', 'data', 'reports');
-                    
+
                     // 重複チェック (新規作成時のみ)
                     if (!currentItem.value) {
                         const q = query(refCol, where('authorId', '==', user.value.uid), where('month', '==', reportFormData.month));
@@ -334,37 +511,72 @@
                         }
                     }
 
-                    const data = { 
-                        ...reportFormData, authorId: user.value.uid, reporterName: userProfile.value.name, 
-                        reporterId: userProfile.value.employeeId, team: userProfile.value.team, 
-                        office: userProfile.value.office, updatedAt: serverTimestamp() 
+                    const data = {
+                        ...reportFormData, authorId: user.value.uid, reporterName: userProfile.value.name,
+                        reporterId: userProfile.value.employeeId, team: userProfile.value.team,
+                        office: userProfile.value.office, updatedAt: serverTimestamp()
                     };
                     if (currentItem.value) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'reports', currentItem.value.id), data);
-                    else await addDoc(refCol, { ...data, createdAt: serverTimestamp(), adminFeedback: "" });
+                    else await addDoc(refCol, { ...data, createdAt: serverTimestamp(), adminFeedback: null });
                     setView('reportList'); showNotification("レポートを保存しました");
+                };
+
+                const saveFeedback = async () => {
+                    if (!feedbackDraft.value.trim() || !currentItem.value || !userProfile.value) return;
+                    const feedback = {
+                        comment: feedbackDraft.value.trim(),
+                        responderName: userProfile.value.name,
+                        responderRole: userProfile.value.role,
+                        respondedAt: new Date().toISOString()
+                    };
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'reports', currentItem.value.id), { adminFeedback: feedback, updatedAt: serverTimestamp() });
+                    currentItem.value.adminFeedback = feedback;
+                    feedbackDraft.value = '';
+                    showNotification("回答を公開しました");
                 };
 
                 const saveTrouble = async () => {
                     if (!user.value || !userProfile.value) return;
+                    if (currentItem.value?.assigneeId && !troubleFormData.assigneeId) {
+                        showNotification("担当者を未設定にはできません"); return;
+                    }
+                    if (troubleFormData.status === 'RESOLVED' && !troubleFormData.resolvedDate) {
+                        showNotification("完了期日を入力してください"); return;
+                    }
                     const refCol = collection(db, 'artifacts', appId, 'public', 'data', 'escalations');
-                    const currentRoleLabel = ROLES[userProfile.value.role]?.label || '管理者';
-                    const data = { 
-                        ...troubleFormData, createdByUid: user.value.uid, createdByName: userProfile.value.name, 
-                        createdByRole: currentRoleLabel, updatedAt: serverTimestamp() 
-                    };
-                    if (currentItem.value) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'escalations', currentItem.value.id), data);
-                    else await addDoc(refCol, { ...data, createdAt: serverTimestamp() });
-                    setView('troubleList'); showNotification("エスカレーションを登録しました");
+                    const assignee = employees.value.find(e => e.employeeId === troubleFormData.assigneeId);
+                    // 起票者情報・office/team・historyはスナップショットのため編集時は上書きしない
+                    const { history, createdByUid, createdByName, createdByRole, office, team, ...formValues } = troubleFormData;
+                    const data = { ...formValues, assigneeName: assignee ? assignee.name : '', updatedAt: serverTimestamp() };
+                    if (currentItem.value) {
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'escalations', currentItem.value.id), data);
+                    } else {
+                        await addDoc(refCol, {
+                            ...data, createdByUid: user.value.uid, createdByName: userProfile.value.name,
+                            createdByRole: ROLES[userProfile.value.role]?.label || '', office: userProfile.value.office,
+                            team: userProfile.value.team, history: [], createdAt: serverTimestamp()
+                        });
+                    }
+                    setView('troubleList'); showNotification(currentItem.value ? "エスカレーションを更新しました" : "エスカレーションを起票しました");
+                };
+
+                const setGlRole = async (employeeId) => {
+                    const emp = employees.value.find(e => e.employeeId === employeeId);
+                    if (emp && emp.role !== 'GL') await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'employees', emp.id), { role: 'GL' });
+                };
+                const setTlRole = async (employeeId) => {
+                    const emp = employees.value.find(e => e.employeeId === employeeId);
+                    if (emp && emp.role !== 'TL') await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'employees', emp.id), { role: 'TL' });
                 };
 
                 const saveUser = async () => {
                     if (!userFormData.employeeId || !userFormData.name) return;
                     const refCol = collection(db, 'artifacts', appId, 'public', 'data', 'employees');
-                    const data = { 
+                    const data = {
                         employeeId: userFormData.employeeId.toUpperCase(), name: userFormData.name, password: userFormData.password,
                         role: userFormData.role, office: userFormData.office, team: userFormData.team, updatedAt: serverTimestamp()
                     };
-                    
+
                     if (!userFormData.id) {
                         // Id check
                         const q = query(refCol, where('employeeId', '==', data.employeeId));
@@ -377,21 +589,24 @@
                     setView('adminUsers'); showNotification("ユーザー情報を保存しました");
                 };
 
-                const saveOffice = async () => {
-                    if (!officeFormData.name || !officeFormData.glId) return;
-                    const refCol = collection(db, 'artifacts', appId, 'public', 'data', 'offices');
-                    const data = { name: officeFormData.name, glId: officeFormData.glId, updatedAt: serverTimestamp() };
-                    if (officeFormData.id) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'offices', officeFormData.id), data);
+                const saveGroup = async () => {
+                    if (!groupFormData.code || !groupFormData.name || !groupFormData.office || !groupFormData.glId) return;
+                    const refCol = collection(db, 'artifacts', appId, 'public', 'data', 'groups');
+                    const data = { code: groupFormData.code, name: groupFormData.name, office: groupFormData.office, glId: groupFormData.glId, updatedAt: serverTimestamp() };
+                    if (groupFormData.id) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'groups', groupFormData.id), data);
                     else await addDoc(refCol, { ...data, createdAt: serverTimestamp() });
+                    await setGlRole(groupFormData.glId);
                     setView('adminGroups'); showNotification("グループを保存しました");
                 };
 
                 const saveTeam = async () => {
-                    if (!teamFormData.name || !teamFormData.office || !teamFormData.tlId) return;
+                    if (!teamFormData.code || !teamFormData.name || !teamFormData.group || !teamFormData.tlId) return;
+                    const parentGroup = groups.value.find(g => g.name === teamFormData.group);
                     const refCol = collection(db, 'artifacts', appId, 'public', 'data', 'teams');
-                    const data = { name: teamFormData.name, office: teamFormData.office, tlId: teamFormData.tlId, updatedAt: serverTimestamp() };
+                    const data = { code: teamFormData.code, name: teamFormData.name, group: teamFormData.group, office: parentGroup?.office || '', tlId: teamFormData.tlId, updatedAt: serverTimestamp() };
                     if (teamFormData.id) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', teamFormData.id), data);
                     else await addDoc(refCol, { ...data, createdAt: serverTimestamp() });
+                    await setTlRole(teamFormData.tlId);
                     setView('adminGroups'); showNotification("チームを保存しました");
                 };
 
@@ -405,6 +620,10 @@
 
                 const updateTroubleStatus = async (s) => {
                     if (!currentItem.value) return;
+                    if (s === 'RESOLVED' && !currentItem.value.resolvedDate) {
+                        showNotification("解決済みにするには編集画面で完了期日を設定してください");
+                        return;
+                    }
                     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'escalations', currentItem.value.id), { status: s, updatedAt: serverTimestamp() });
                     currentItem.value.status = s;
                 };
@@ -418,19 +637,22 @@
                     if (!confirm("削除しますか？")) return;
                     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', t, id));
                     if (t === 'reports') setView('reportList');
-                    else if (t === 'escalations') setView('troubleList');
                     else if (t === 'employees') setView('adminUsers');
-                    else setView('adminGroups');
+                    else setView('adminGroups'); // groups / teams
                 };
 
                 return {
-                    user, userProfile, reports, escalations, employees, offices, teams, loading, view, currentItem, notification,
-                    reportFormData, troubleFormData, userFormData, officeFormData, teamFormData, loginData, troubleLogText, isAILoading,
+                    user, userProfile, reports, escalations, employees, offices, groups, teams, loading, view, currentItem, notification,
+                    reportFormData, troubleFormData, userFormData, groupFormData, teamFormData, loginData, troubleLogText, feedbackDraft, isAILoading,
+                    reportFilters, escalationFilters, userSearch, groupSearch, teamSearch,
                     ROLES, CONDITION_ITEMS, CONDITION_OPTIONS, TROUBLE_STATUS, TROUBLE_SEVERITY,
-                    activeOffices, activeTeams, availableTeamsForUserForm, canManageUsersAndGroups,
-                    filteredEmployees, filteredAdminTeams, unsubmittedStatus, isSelfSubmitted, daysUntilDeadline, currentMonthStr, DEADLINE_DAY,
+                    activeOffices, activeTeams, availableTeamsForUserForm, availableGroupsForTeamForm, registrableRoles,
+                    isBlockedRole, canSubmitReport, canAccessEscalation, canCreateEscalation, canGiveFeedbackRole,
+                    canManageUsers, canManageOrg, canCreateGroup, isMasked, maskText, canGiveFeedback, feedbackDeadlinePassed, canEditEscalation,
+                    filteredEmployees, filteredGroups, filteredTeams, groupManagementScope, unsubmittedStatus, pendingFeedbackCount,
+                    filteredReports, filteredEscalations, isSelfSubmitted, daysUntilDeadline, currentMonthStr, DEADLINE_DAY,
                     getEmployeeName, handleLogin, handleLogout: () => { signOut(auth); window.location.reload(); },
-                    setView, saveReport, saveTrouble, saveUser, saveOffice, saveTeam, addTroubleLog, updateTroubleStatus, rewriteWithAI, deleteItem
+                    setView, saveReport, saveFeedback, saveTrouble, saveUser, saveGroup, saveTeam, addTroubleLog, updateTroubleStatus, rewriteWithAI, deleteItem
                 };
             },
             template: `
@@ -454,8 +676,24 @@
                                 <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2 mb-1 block">パスワード</label>
                                 <input v-model.trim="loginData.password" type="password" required class="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold transition-all" placeholder="pass"></div>
                                 <button type="submit" class="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"><i data-lucide="log-in" class="w-5 h-5"></i> ログイン</button>
-                                <div class="pt-6 mt-6 border-t text-[10px] text-slate-400 font-bold text-center">Test IDs: EMP001 (OM), EMP002 (GL), EMP003 (TL), EMP004 (メンバー)</div>
+                                <div class="pt-6 mt-6 border-t text-[9px] text-slate-400 font-bold text-center leading-relaxed">
+                                    Test IDs (PW: pass)<br>
+                                    EMP001(OM) / EMP002(GL) / EMP003(TL) / EMP004(TM) / EMP005(NG)<br>
+                                    EMP006(GL/大阪) / EMP007(TL/大阪) / EMP008(TM/大阪) / EMP009(SP) / EMP010(SM) / EMP011(SA)
+                                </div>
                             </form>
+                        </div>
+                    </div>
+
+                    <!-- アクセス不可ロール（NG） -->
+                    <div v-else-if="isBlockedRole" class="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+                        <div class="bg-white max-w-md w-full rounded-[2.5rem] p-10 shadow-xl text-center space-y-6">
+                            <div class="w-16 h-16 bg-slate-200 rounded-3xl flex items-center justify-center mx-auto"><i data-lucide="lock" class="w-8 h-8 text-slate-400"></i></div>
+                            <div>
+                                <h2 class="text-xl font-black">利用可能な画面がありません</h2>
+                                <p class="text-xs font-bold text-slate-400 mt-2 leading-relaxed">{{ROLES[userProfile.role]?.label}}ロールは月報の提出・閲覧、エスカレーション機能のいずれにもアクセスできません。</p>
+                            </div>
+                            <button @click="handleLogout" class="w-full py-4 bg-slate-800 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg"><i data-lucide="log-out" class="w-4 h-4"></i> ログアウト</button>
                         </div>
                     </div>
 
@@ -466,14 +704,14 @@
                                     <div class="flex items-center gap-3 cursor-pointer" @click="setView('reportList')"><div class="bg-indigo-600 p-2 rounded-xl text-white"><i data-lucide="layout-grid" class="w-5 h-5"></i></div><h1 class="text-lg font-black hidden md:block">Management Portal</h1></div>
                                     <nav class="flex items-center gap-1 overflow-x-auto no-scrollbar">
                                         <button @click="setView('reportList')" :class="view.includes('report') ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'" class="px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap">月次報告</button>
-                                        <button v-if="ROLES[userProfile.role]?.rank > 0" @click="setView('troubleList')" :class="view.includes('trouble') ? 'bg-red-50 text-red-600' : 'text-slate-400'" class="px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap">エスカレーション</button>
-                                        <div v-if="canManageUsersAndGroups" class="w-px h-6 bg-slate-200 mx-2"></div>
-                                        <button v-if="canManageUsersAndGroups" @click="setView('adminUsers')" :class="view.includes('adminUser') ? 'bg-slate-100 text-slate-800' : 'text-slate-400'" class="px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1 whitespace-nowrap"><i data-lucide="users" class="w-3 h-3"></i> ユーザー管理</button>
-                                        <button v-if="canManageUsersAndGroups" @click="setView('adminGroups')" :class="view.includes('adminGroup') || view.includes('adminOffice') || view.includes('adminTeam') ? 'bg-slate-100 text-slate-800' : 'text-slate-400'" class="px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1 whitespace-nowrap"><i data-lucide="network" class="w-3 h-3"></i> 組織管理</button>
+                                        <button v-if="canAccessEscalation" @click="setView('troubleList')" :class="view.includes('trouble') ? 'bg-red-50 text-red-600' : 'text-slate-400'" class="px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap">エスカレーション</button>
+                                        <div v-if="canManageUsers || canManageOrg" class="w-px h-6 bg-slate-200 mx-2"></div>
+                                        <button v-if="canManageUsers" @click="setView('adminUsers')" :class="view.includes('adminUser') ? 'bg-slate-100 text-slate-800' : 'text-slate-400'" class="px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1 whitespace-nowrap"><i data-lucide="users" class="w-3 h-3"></i> ユーザー管理</button>
+                                        <button v-if="canManageOrg" @click="setView('adminGroups')" :class="view.includes('adminGroup') || view.includes('adminTeam') ? 'bg-slate-100 text-slate-800' : 'text-slate-400'" class="px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1 whitespace-nowrap"><i data-lucide="network" class="w-3 h-3"></i> 組織管理</button>
                                     </nav>
                                 </div>
                                 <div class="flex items-center gap-4">
-                                    <div class="text-right hidden sm:block"><div class="text-xs font-black">{{userProfile.name}}</div><div class="text-[9px] font-bold text-indigo-500 uppercase">{{userProfile.office}} | {{ROLES[userProfile.role]?.label}}</div></div>
+                                    <div class="text-right hidden sm:block"><div class="text-xs font-black">{{userProfile.name}}</div><div class="text-[9px] font-bold text-indigo-500 uppercase">{{userProfile.office || 'ALL OFFICES'}} | {{ROLES[userProfile.role]?.label}}</div></div>
                                     <button @click="handleLogout" class="p-2 bg-slate-100 text-slate-400 hover:text-red-500 rounded-xl transition-colors"><i data-lucide="log-out" class="w-5 h-5"></i></button>
                                 </div>
                             </div>
@@ -486,35 +724,45 @@
                                     <div class="bg-white/10 p-2 rounded-lg"><i data-lucide="calendar" class="w-4 h-4 text-indigo-200"></i></div>
                                     <p class="text-xs font-bold">今月 ({{currentMonthStr}}) の提出期限まであと <span class="text-lg font-black text-yellow-400">{{daysUntilDeadline}}</span> 日 ({{DEADLINE_DAY}}日〆切)</p>
                                 </div>
-                                <div v-if="!isSelfSubmitted" class="flex items-center gap-3 bg-red-500/20 px-4 py-2 rounded-xl border border-red-500/30 animate-pulse">
+                                <div v-if="canSubmitReport && !isSelfSubmitted" class="flex items-center gap-3 bg-red-500/20 px-4 py-2 rounded-xl border border-red-500/30 animate-pulse">
                                     <i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i><p class="text-[10px] font-black uppercase tracking-widest">未提出アラート: お早めに提出してください</p>
                                 </div>
-                                <div v-else class="flex items-center gap-3 bg-emerald-500/20 px-4 py-2 rounded-xl border border-emerald-500/30">
+                                <div v-else-if="canSubmitReport" class="flex items-center gap-3 bg-emerald-500/20 px-4 py-2 rounded-xl border border-emerald-500/30">
                                     <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i><p class="text-[10px] font-black uppercase tracking-widest">今月分は提出済みです。お疲れ様です！</p>
                                 </div>
                             </div>
                         </div>
 
                         <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-8">
-                            
-                            <!-- ユーザー管理 (OM, GL) -->
+
+                            <!-- ユーザー管理 (GL/OM/SP/SM/SA) -->
                             <div v-if="view === 'adminUsers'" class="space-y-6 animate-in fade-in">
                                 <div class="flex items-center justify-between">
                                     <div><h2 class="text-2xl font-black">ユーザー管理</h2><p class="text-xs font-bold text-slate-400 uppercase mt-1">User Management</p></div>
                                     <button @click="setView('adminUserForm')" class="bg-slate-800 text-white px-4 py-2 rounded-xl font-black text-xs shadow-xl"><i data-lucide="plus" class="w-4 h-4 inline"></i> ユーザー新規登録</button>
                                 </div>
+                                <div class="bg-white p-6 rounded-[2rem] border shadow-sm flex flex-wrap items-end gap-4">
+                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase pl-1">キーワード</label><input v-model="userSearch.keyword" type="text" placeholder="社員番号・氏名で検索" class="p-3 bg-slate-50 rounded-xl font-bold text-sm outline-none"></div>
+                                    <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase pl-1">ロール</label>
+                                        <select v-model="userSearch.role" class="p-3 bg-slate-50 rounded-xl font-bold text-sm outline-none"><option value="">すべて</option><option v-for="r in Object.values(ROLES)" :key="r.id" :value="r.id">{{r.label}}</option></select>
+                                    </div>
+                                    <div v-if="userProfile.role === 'SA'" class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase pl-1">営業所</label>
+                                        <select v-model="userSearch.office" class="p-3 bg-slate-50 rounded-xl font-bold text-sm outline-none"><option value="">すべて</option><option v-for="o in activeOffices" :key="o" :value="o">{{o}}</option></select>
+                                    </div>
+                                    <div v-else-if="userProfile.role === 'OM'" class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase pl-1">営業所</label><div class="p-3 bg-slate-100 rounded-xl font-bold text-sm text-slate-500">{{userProfile.office}}</div></div>
+                                </div>
                                 <div class="bg-white rounded-[2rem] border shadow-sm overflow-x-auto">
                                     <table class="w-full text-left text-sm whitespace-nowrap">
                                         <thead class="bg-slate-50 text-slate-400 font-black uppercase text-[10px]">
-                                            <tr><th class="p-4 rounded-tl-[2rem]">社員番号</th><th class="p-4">氏名</th><th class="p-4">ロール</th><th class="p-4">グループ</th><th class="p-4">チーム</th><th class="p-4 rounded-tr-[2rem]">操作</th></tr>
+                                            <tr><th class="p-4 rounded-tl-[2rem]">社員番号</th><th class="p-4">氏名</th><th class="p-4">ロール</th><th class="p-4">営業所</th><th class="p-4">チーム</th><th class="p-4 rounded-tr-[2rem]">操作</th></tr>
                                         </thead>
                                         <tbody>
                                             <tr v-for="emp in filteredEmployees" :key="emp.id" class="border-t hover:bg-slate-50 transition-colors">
                                                 <td class="p-4 font-bold text-indigo-600">{{emp.employeeId}}</td>
                                                 <td class="p-4 font-black">{{emp.name}}</td>
                                                 <td class="p-4"><span class="px-2 py-1 bg-slate-100 rounded text-[9px] font-black tracking-widest uppercase">{{ROLES[emp.role]?.label}}</span></td>
-                                                <td class="p-4 text-xs font-bold text-slate-600">{{emp.office}}</td>
-                                                <td class="p-4 text-xs font-bold text-slate-600">{{emp.team}}</td>
+                                                <td class="p-4 text-xs font-bold text-slate-600">{{emp.office || '-'}}</td>
+                                                <td class="p-4 text-xs font-bold text-slate-600">{{emp.team || '-'}}</td>
                                                 <td class="p-4">
                                                     <div class="flex gap-2">
                                                         <button @click="setView('adminUserForm', emp)" class="text-slate-400 hover:text-indigo-600"><i data-lucide="edit" class="w-4 h-4"></i></button>
@@ -533,77 +781,102 @@
                                     <div class="grid md:grid-cols-2 gap-6">
                                         <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">社員番号</label><input v-model="userFormData.employeeId" type="text" :disabled="!!userFormData.id" class="w-full p-4 bg-slate-50 rounded-2xl font-black disabled:opacity-50"></div>
                                         <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">氏名</label><input v-model="userFormData.name" type="text" class="w-full p-4 bg-slate-50 rounded-2xl font-black"></div>
-                                        <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">パスワード</label><input v-model="userFormData.password" type="text" class="w-full p-4 bg-slate-50 rounded-2xl font-black"></div>
+                                        <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">初期パスワード</label><input v-model="userFormData.password" type="text" maxlength="128" class="w-full p-4 bg-slate-50 rounded-2xl font-black"></div>
                                         <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">ロール権限</label>
-                                            <select v-model="userFormData.role" class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none"><option v-for="r in Object.values(ROLES)" :key="r.id" :value="r.id">{{r.label}}</option></select>
+                                            <select v-model="userFormData.role" class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none"><option v-for="r in registrableRoles" :key="r.id" :value="r.id">{{r.label}}</option></select>
                                         </div>
-                                        <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">所属グループ (営業所)</label>
-                                            <select v-model="userFormData.office" :disabled="userProfile.role !== 'OM'" class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none disabled:opacity-50"><option v-for="o in activeOffices" :key="o" :value="o">{{o}}</option></select>
+                                        <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">所属営業所</label>
+                                            <select v-model="userFormData.office" :disabled="userProfile.role !== 'SA'" class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none disabled:opacity-50"><option v-for="o in activeOffices" :key="o" :value="o">{{o}}</option></select>
                                         </div>
-                                        <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">所属チーム</label>
+                                        <div v-if="['NG','TM'].includes(userFormData.role)" class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">所属チーム</label>
                                             <select v-model="userFormData.team" class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none"><option v-for="t in availableTeamsForUserForm" :key="t" :value="t">{{t}}</option></select>
                                         </div>
                                     </div>
-                                    <div class="pt-6"><button @click="saveUser" :disabled="!userFormData.employeeId || !userFormData.name" class="w-full py-5 bg-slate-800 text-white rounded-3xl font-black shadow-xl disabled:opacity-30">保存する</button></div>
+                                    <div class="pt-6"><button @click="saveUser" :disabled="!userFormData.employeeId || !userFormData.name || (['NG','TM'].includes(userFormData.role) && !userFormData.team)" class="w-full py-5 bg-slate-800 text-white rounded-3xl font-black shadow-xl disabled:opacity-30">保存する</button></div>
                                 </section>
                             </div>
 
                             <!-- 組織管理 (グループ・チーム) -->
                             <div v-if="view === 'adminGroups'" class="space-y-8 animate-in fade-in">
                                 <div class="flex items-center justify-between"><div><h2 class="text-2xl font-black">組織管理</h2><p class="text-xs font-bold text-slate-400 mt-1">Group & Team Management</p></div></div>
-                                
-                                <div v-if="userProfile?.role === 'OM'" class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
-                                    <div class="flex items-center justify-between mb-6"><h3 class="text-lg font-black flex items-center gap-2"><i data-lucide="building" class="w-5 h-5 text-indigo-500"></i> グループ (営業所)</h3><button @click="setView('adminOfficeForm')" class="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl font-black text-[10px]"><i data-lucide="plus" class="w-3 h-3 inline"></i> グループ登録</button></div>
+
+                                <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm space-y-6">
+                                    <div class="flex items-center justify-between flex-wrap gap-4"><h3 class="text-lg font-black flex items-center gap-2"><i data-lucide="building" class="w-5 h-5 text-indigo-500"></i> グループ</h3><button v-if="canCreateGroup" @click="setView('adminGroupForm')" class="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl font-black text-[10px]"><i data-lucide="plus" class="w-3 h-3 inline"></i> グループ登録</button></div>
+                                    <div class="flex flex-wrap items-end gap-4">
+                                        <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase pl-1">グループ名</label><input v-model="groupSearch.name" type="text" class="p-3 bg-slate-50 rounded-xl font-bold text-sm outline-none"></div>
+                                        <div v-if="userProfile.role === 'SA'" class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase pl-1">営業所</label><select v-model="groupSearch.office" class="p-3 bg-slate-50 rounded-xl font-bold text-sm outline-none"><option value="">すべて</option><option v-for="o in activeOffices" :key="o" :value="o">{{o}}</option></select></div>
+                                    </div>
                                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        <div v-for="off in offices" :key="off.id" class="p-5 border rounded-2xl bg-slate-50 flex justify-between items-center group">
-                                            <div><div class="font-black text-sm">{{off.name}}</div><div class="text-[10px] font-bold text-slate-500 mt-1 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3"></i> GL: <span class="text-indigo-600">{{getEmployeeName(off.glId) || '未設定'}}</span></div></div>
-                                            <button @click="deleteItem('offices', off.id)" class="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                        <div v-for="g in filteredGroups" :key="g.id" class="p-5 border rounded-2xl bg-slate-50 flex justify-between items-center group">
+                                            <div><div class="text-[9px] font-black text-slate-400">{{g.code}}</div><div class="font-black text-sm">{{g.name}}</div><div class="text-[10px] font-bold text-slate-500 mt-1 flex items-center gap-1"><span class="bg-slate-200 px-1.5 rounded">{{g.office}}</span> GL: <span class="text-indigo-600">{{getEmployeeName(g.glId) || '未設定'}}</span></div></div>
+                                            <button v-if="canCreateGroup" @click="deleteItem('groups', g.id)" class="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                                         </div>
+                                        <div v-if="filteredGroups.length === 0" class="text-xs font-bold text-slate-300 uppercase py-6 text-center col-span-full">No groups found</div>
                                     </div>
                                 </div>
 
-                                <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
-                                    <div class="flex items-center justify-between mb-6"><h3 class="text-lg font-black flex items-center gap-2"><i data-lucide="network" class="w-5 h-5 text-indigo-500"></i> チーム</h3><button @click="setView('adminTeamForm')" class="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl font-black text-[10px]"><i data-lucide="plus" class="w-3 h-3 inline"></i> チーム登録</button></div>
+                                <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm space-y-6">
+                                    <div class="flex items-center justify-between flex-wrap gap-4"><h3 class="text-lg font-black flex items-center gap-2"><i data-lucide="network" class="w-5 h-5 text-indigo-500"></i> チーム</h3><button @click="setView('adminTeamForm')" class="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl font-black text-[10px]"><i data-lucide="plus" class="w-3 h-3 inline"></i> チーム登録</button></div>
+                                    <div class="flex flex-wrap items-end gap-4">
+                                        <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase pl-1">チーム名</label><input v-model="teamSearch.name" type="text" class="p-3 bg-slate-50 rounded-xl font-bold text-sm outline-none"></div>
+                                        <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase pl-1">グループ</label><select v-model="teamSearch.group" class="p-3 bg-slate-50 rounded-xl font-bold text-sm outline-none"><option value="">すべて</option><option v-for="g in groupManagementScope" :key="g.id" :value="g.name">{{g.name}}</option></select></div>
+                                    </div>
                                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        <div v-for="t in filteredAdminTeams" :key="t.id" class="p-5 border rounded-2xl bg-slate-50 flex justify-between items-center group">
-                                            <div><div class="font-black text-sm">{{t.name}}</div><div class="text-[10px] font-bold text-slate-500 mt-1 flex items-center gap-1"><span class="bg-slate-200 px-1.5 rounded">{{t.office}}</span> TL: <span class="text-indigo-600">{{getEmployeeName(t.tlId) || '未設定'}}</span></div></div>
+                                        <div v-for="t in filteredTeams" :key="t.id" class="p-5 border rounded-2xl bg-slate-50 flex justify-between items-center group">
+                                            <div><div class="text-[9px] font-black text-slate-400">{{t.code}}</div><div class="font-black text-sm">{{t.name}}</div><div class="text-[10px] font-bold text-slate-500 mt-1 flex items-center gap-1"><span class="bg-slate-200 px-1.5 rounded">{{t.group}}</span> TL: <span class="text-indigo-600">{{getEmployeeName(t.tlId) || '未設定'}}</span></div></div>
                                             <button @click="deleteItem('teams', t.id)" class="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                                         </div>
+                                        <div v-if="filteredTeams.length === 0" class="text-xs font-bold text-slate-300 uppercase py-6 text-center col-span-full">No teams found</div>
                                     </div>
                                 </div>
                             </div>
 
-                            <div v-if="view === 'adminOfficeForm'" class="max-w-2xl mx-auto space-y-8 animate-in zoom-in-95 pb-20">
+                            <div v-if="view === 'adminGroupForm'" class="max-w-2xl mx-auto space-y-8 animate-in zoom-in-95 pb-20">
                                 <div class="flex items-center gap-4 mb-6"><button @click="setView('adminGroups')" class="p-3 bg-white rounded-2xl border shadow-sm"><i data-lucide="chevron-left" class="w-6 h-6"></i></button><h2 class="text-2xl font-black">グループの登録</h2></div>
                                 <section class="bg-white p-10 rounded-[3rem] border shadow-sm space-y-6">
-                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">グループ名 (営業所名)</label><input v-model="officeFormData.name" type="text" class="w-full p-4 bg-slate-50 rounded-2xl font-black" placeholder="例: 名古屋営業所"></div>
-                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">GL担当者 (必須)</label>
-                                        <select v-model="officeFormData.glId" required class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none"><option value="" disabled>GLを担当するユーザーを選択</option><option v-for="emp in employees" :key="emp.employeeId" :value="emp.employeeId">{{emp.name}} ({{emp.employeeId}})</option></select>
+                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">グループコード</label><input v-model="groupFormData.code" type="text" class="w-full p-4 bg-slate-50 rounded-2xl font-black" placeholder="例: GROUP_C"></div>
+                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">グループ名</label><input v-model="groupFormData.name" type="text" class="w-full p-4 bg-slate-50 rounded-2xl font-black" placeholder="例: 名古屋グループ"></div>
+                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">営業所</label>
+                                        <select v-model="groupFormData.office" :disabled="userProfile.role === 'OM'" class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none disabled:opacity-50"><option v-for="o in activeOffices" :key="o" :value="o">{{o}}</option></select>
                                     </div>
-                                    <div class="pt-6"><button @click="saveOffice" :disabled="!officeFormData.name || !officeFormData.glId" class="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black shadow-xl disabled:opacity-30">保存する</button></div>
+                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">GL担当者 (必須)</label>
+                                        <select v-model="groupFormData.glId" required class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none"><option value="" disabled>GLを担当するユーザーを選択</option><option v-for="emp in employees" :key="emp.employeeId" :value="emp.employeeId">{{emp.name}} ({{emp.employeeId}})</option></select>
+                                    </div>
+                                    <div class="pt-6"><button @click="saveGroup" :disabled="!groupFormData.code || !groupFormData.name || !groupFormData.office || !groupFormData.glId" class="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black shadow-xl disabled:opacity-30">保存する</button></div>
                                 </section>
                             </div>
 
                             <div v-if="view === 'adminTeamForm'" class="max-w-2xl mx-auto space-y-8 animate-in zoom-in-95 pb-20">
                                 <div class="flex items-center gap-4 mb-6"><button @click="setView('adminGroups')" class="p-3 bg-white rounded-2xl border shadow-sm"><i data-lucide="chevron-left" class="w-6 h-6"></i></button><h2 class="text-2xl font-black">チームの登録</h2></div>
                                 <section class="bg-white p-10 rounded-[3rem] border shadow-sm space-y-6">
-                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">所属グループ (営業所)</label>
-                                        <select v-model="teamFormData.office" :disabled="userProfile.role !== 'OM'" class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none disabled:opacity-50"><option v-for="o in activeOffices" :key="o" :value="o">{{o}}</option></select>
+                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">チームコード</label><input v-model="teamFormData.code" type="text" class="w-full p-4 bg-slate-50 rounded-2xl font-black" placeholder="例: TEAM_D"></div>
+                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">所属グループ</label>
+                                        <select v-model="teamFormData.group" :disabled="userProfile.role === 'GL'" class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none disabled:opacity-50"><option v-for="g in availableGroupsForTeamForm" :key="g" :value="g">{{g}}</option></select>
                                     </div>
                                     <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">チーム名</label><input v-model="teamFormData.name" type="text" class="w-full p-4 bg-slate-50 rounded-2xl font-black" placeholder="例: 第一営業部"></div>
                                     <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">TL担当者 (必須)</label>
                                         <select v-model="teamFormData.tlId" required class="w-full p-4 bg-slate-50 rounded-2xl font-black outline-none"><option value="" disabled>TLを担当するユーザーを選択</option><option v-for="emp in employees" :key="emp.employeeId" :value="emp.employeeId">{{emp.name}} ({{emp.employeeId}})</option></select>
                                     </div>
-                                    <div class="pt-6"><button @click="saveTeam" :disabled="!teamFormData.name || !teamFormData.office || !teamFormData.tlId" class="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black shadow-xl disabled:opacity-30">保存する</button></div>
+                                    <div class="pt-6"><button @click="saveTeam" :disabled="!teamFormData.code || !teamFormData.name || !teamFormData.group || !teamFormData.tlId" class="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black shadow-xl disabled:opacity-30">保存する</button></div>
                                 </section>
                             </div>
 
-                            <!-- --- 既存のReport List View, Trouble List View 等 --- -->
-                            
-                            <!-- Report List View -->
+                            <!-- Report List View (ダッシュボード) -->
                             <div v-if="view === 'reportList'" class="space-y-8 animate-in fade-in">
+                                <!-- KPI Section -->
+                                <div v-if="canGiveFeedbackRole" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div class="bg-white p-6 rounded-[2rem] border shadow-sm flex items-center justify-between">
+                                        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">未回答報告数</p><p class="text-3xl font-black text-amber-500 mt-1">{{pendingFeedbackCount}}</p></div>
+                                        <div class="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center"><i data-lucide="help-circle" class="w-6 h-6 text-amber-500"></i></div>
+                                    </div>
+                                    <div v-if="unsubmittedStatus" class="bg-white p-6 rounded-[2rem] border shadow-sm flex items-center justify-between">
+                                        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">今月提出完了率</p><p class="text-3xl font-black text-indigo-600 mt-1">{{unsubmittedStatus.rate}}%</p></div>
+                                        <div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center"><i data-lucide="trending-up" class="w-6 h-6 text-indigo-600"></i></div>
+                                    </div>
+                                </div>
+
                                 <!-- Management Monitor Section -->
-                                <div v-if="ROLES[userProfile.role]?.rank > 0 && unsubmittedStatus" class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
+                                <div v-if="canGiveFeedbackRole && unsubmittedStatus" class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
                                     <div class="flex items-center justify-between mb-6"><div><h3 class="text-lg font-black flex items-center gap-2"><i data-lucide="users" class="text-indigo-600"></i> 未提出者モニタリング</h3><p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Submission Tracking ({{currentMonthStr}})</p></div><div class="text-right"><div class="text-2xl font-black text-indigo-600">{{unsubmittedStatus.rate}}%</div><div class="text-[10px] font-black text-slate-400 uppercase tracking-tighter">提出完了率</div></div></div>
                                     <div class="w-full bg-slate-100 h-2 rounded-full mb-8 overflow-hidden"><div :style="{ width: unsubmittedStatus.rate + '%' }" class="h-full bg-indigo-600 transition-all duration-1000"></div></div>
                                     <div v-if="unsubmittedStatus.list.length === 0" class="text-center py-4 bg-emerald-50 rounded-2xl border border-emerald-100"><p class="text-xs font-black text-emerald-700">全員提出済みです！ ✨</p></div>
@@ -611,12 +884,24 @@
                                         <div v-for="m in unsubmittedStatus.list" :key="m.employeeId" class="p-4 bg-red-50 border border-red-100 rounded-2xl flex flex-col items-center text-center"><div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center font-black text-red-600 text-xs mb-2">{{m.name.charAt(0)}}</div><div class="text-[11px] font-black text-slate-800 leading-tight">{{m.name}}</div><div class="text-[9px] font-bold text-red-400 uppercase mt-1">{{m.employeeId}}</div></div>
                                     </div>
                                 </div>
-                                <div class="flex items-center justify-between"><div><h2 class="text-2xl font-black">月次報告一覧</h2><p class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Monthly Reports History</p></div><button @click="setView('reportForm')" class="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-sm shadow-xl flex items-center gap-2 hover:bg-indigo-700 transition-all"><i data-lucide="plus" class="w-4 h-4"></i> 新規月報作成</button></div>
-                                <div v-if="reports.length === 0" class="bg-white border-4 border-dashed rounded-[3rem] py-20 text-center text-slate-300 font-black text-sm uppercase">No reports found</div>
+                                <div class="flex items-center justify-between"><div><h2 class="text-2xl font-black">月次報告一覧</h2><p class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Monthly Reports History</p></div><button v-if="canSubmitReport" @click="setView('reportForm')" class="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-sm shadow-xl flex items-center gap-2 hover:bg-indigo-700 transition-all"><i data-lucide="plus" class="w-4 h-4"></i> 新規月報作成</button></div>
+                                <div class="flex flex-wrap items-center gap-3 bg-white p-4 rounded-2xl border shadow-sm">
+                                    <div class="flex items-center gap-2"><label class="text-[10px] font-black text-slate-400 uppercase">対象月</label><input v-model="reportFilters.month" type="month" class="p-2 bg-slate-50 rounded-xl font-bold text-sm outline-none"></div>
+                                    <div class="flex items-center gap-2"><label class="text-[10px] font-black text-slate-400 uppercase">ステータス</label>
+                                        <select v-model="reportFilters.status" class="p-2 bg-slate-50 rounded-xl font-bold text-sm outline-none">
+                                            <option value="ALL">すべて</option>
+                                            <option value="SUBMITTED">提出済み</option>
+                                            <option value="PENDING_FEEDBACK">回答待ち</option>
+                                            <option value="FEEDBACKED">回答済み</option>
+                                        </select>
+                                    </div>
+                                    <button v-if="reportFilters.month || reportFilters.status !== 'ALL'" @click="reportFilters.month=''; reportFilters.status='ALL'" class="text-[10px] font-black text-slate-400 hover:text-slate-600 underline ml-auto">条件クリア</button>
+                                </div>
+                                <div v-if="filteredReports.length === 0" class="bg-white border-4 border-dashed rounded-[3rem] py-20 text-center text-slate-300 font-black text-sm uppercase">No reports found</div>
                                 <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    <div v-for="r in reports" :key="r.id" @click="setView('reportDetail', r)" class="bg-white p-8 rounded-[2.5rem] border-2 border-transparent hover:border-indigo-400 hover:shadow-2xl transition-all cursor-pointer shadow-sm relative group">
-                                        <div class="flex justify-between items-start mb-6"><span class="bg-slate-900 text-white text-[10px] font-black px-3 py-1 rounded-lg">{{r.month}}</span><span :class="r.adminFeedback ? 'bg-emerald-500' : 'bg-amber-400'" class="text-[8px] font-black text-white px-2 py-1 rounded-full uppercase">{{r.adminFeedback ? 'Closed' : 'Reviewing'}}</span></div>
-                                        <h3 class="text-xl font-black text-slate-900 mb-4 line-clamp-2 leading-tight group-hover:text-indigo-600 transition-colors">{{r.title}}</h3>
+                                    <div v-for="r in filteredReports" :key="r.id" @click="setView('reportDetail', r)" class="bg-white p-8 rounded-[2.5rem] border-2 border-transparent hover:border-indigo-400 hover:shadow-2xl transition-all cursor-pointer shadow-sm relative group">
+                                        <div class="flex justify-between items-start mb-6"><span class="bg-slate-900 text-white text-[10px] font-black px-3 py-1 rounded-lg">{{r.month}}</span><span :class="r.adminFeedback ? 'bg-emerald-500' : 'bg-amber-400'" class="text-[8px] font-black text-white px-2 py-1 rounded-full uppercase">{{r.adminFeedback ? 'Checked' : 'Reviewing'}}</span></div>
+                                        <h3 class="text-xl font-black text-slate-900 mb-4 line-clamp-2 leading-tight group-hover:text-indigo-600 transition-colors">{{maskText(r.title)}}</h3>
                                         <div class="pt-6 border-t flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-xs">{{r.reporterName?.charAt(0) || '?'}}</div><div class="text-[10px] font-black text-slate-500">{{r.reporterName}}</div></div><i data-lucide="chevron-right" class="w-4 h-4 text-slate-200 group-hover:text-indigo-600 transition-all"></i></div>
                                     </div>
                                 </div>
@@ -633,8 +918,8 @@
                                     <div class="space-y-2 pt-4 border-t"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2 block mb-2">営業情報</label><textarea v-model="reportFormData.salesInfo" rows="2" class="w-full p-5 bg-slate-50 border-none rounded-2xl font-bold focus:ring-2 focus:ring-indigo-500"></textarea></div>
                                     <div class="space-y-6 pt-4 border-t"><h3 class="text-xs font-black text-indigo-600 uppercase tracking-widest">■ 月次報告</h3>
                                         <div class="grid md:grid-cols-2 gap-8">
-                                            <div class="space-y-4"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">1. 来月残業見込み (h)</label><div class="flex items-center gap-4"><input v-model="reportFormData.nextMonthOvertime" type="number" class="w-24 p-4 bg-slate-50 border-none rounded-2xl font-black text-xl text-center"> <span class="text-xs font-black text-slate-300">h前後</span></div><input v-model="reportFormData.nextMonthOvertimeReason" type="text" class="w-full p-3 bg-slate-50 border-none rounded-xl text-xs font-bold" placeholder="理由"></div>
-                                            <div class="space-y-4"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">2. 今月残業見込み (h)</label><div class="flex items-center gap-4"><input v-model="reportFormData.thisMonthOvertime" type="number" class="w-24 p-4 bg-slate-50 border-none rounded-2xl font-black text-xl text-center"> <span class="text-xs font-black text-slate-300">h前後</span></div><input v-model="reportFormData.thisMonthOvertimeReason" type="text" class="w-full p-3 bg-slate-50 border-none rounded-xl text-xs font-bold" placeholder="理由"></div>
+                                            <div class="space-y-4"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">1. 来月残業見込み (h)</label><div class="flex items-center gap-4"><input v-model="reportFormData.nextMonthOvertime" type="number" min="0" max="300" class="w-24 p-4 bg-slate-50 border-none rounded-2xl font-black text-xl text-center"> <span class="text-xs font-black text-slate-300">h前後</span></div><input v-model="reportFormData.nextMonthOvertimeReason" type="text" maxlength="255" class="w-full p-3 bg-slate-50 border-none rounded-xl text-xs font-bold" placeholder="理由"></div>
+                                            <div class="space-y-4"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">2. 今月残業見込み (h)</label><div class="flex items-center gap-4"><input v-model="reportFormData.thisMonthOvertime" type="number" min="0" max="300" class="w-24 p-4 bg-slate-50 border-none rounded-2xl font-black text-xl text-center"> <span class="text-xs font-black text-slate-300">h前後</span></div><input v-model="reportFormData.thisMonthOvertimeReason" type="text" maxlength="255" class="w-full p-3 bg-slate-50 border-none rounded-xl text-xs font-bold" placeholder="理由"></div>
                                         </div>
                                         <div class="pt-8 border-t space-y-8"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2 block mb-4">3. コンディション自己診断</label>
                                             <div class="grid sm:grid-cols-2 gap-6"><div v-for="item in CONDITION_ITEMS" :key="item.id" class="flex flex-col gap-2 p-5 bg-slate-50 rounded-3xl border border-slate-100"><span class="text-xs font-black text-slate-700 pl-1">{{item.label}}</span><div class="flex bg-slate-200 p-1.5 rounded-2xl gap-1"><button v-for="opt in CONDITION_OPTIONS" :key="opt.id" @click="reportFormData.condition[item.id] = opt.label" type="button" :class="reportFormData.condition[item.id] === opt.label ? 'bg-white shadow-xl scale-110 ' + opt.color : 'text-slate-400 opacity-60'" class="flex-1 h-12 rounded-xl flex items-center justify-center text-base font-black transition-all">{{opt.label}}</button></div></div></div>
@@ -647,15 +932,28 @@
 
                             <!-- Report Detail View -->
                             <div v-if="view === 'reportDetail' && currentItem" class="max-w-4xl mx-auto space-y-8 animate-in zoom-in-95 pb-40">
-                                <div class="flex items-center justify-between"><button @click="setView('reportList')" class="p-3 bg-white rounded-2xl border shadow-sm hover:bg-slate-50"><i data-lucide="chevron-left" class="w-6 h-6"></i></button><div class="flex gap-2"><button v-if="currentItem.authorId === user.uid" @click="setView('reportForm', currentItem)" class="px-6 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-xs">編集</button><button v-if="currentItem.authorId === user.uid || ROLES[userProfile.role]?.rank > 2" @click="deleteItem('reports', currentItem.id)" class="px-6 py-2 bg-red-50 text-red-500 rounded-xl font-black text-xs">削除</button></div></div>
+                                <div class="flex items-center justify-between"><button @click="setView('reportList')" class="p-3 bg-white rounded-2xl border shadow-sm hover:bg-slate-50"><i data-lucide="chevron-left" class="w-6 h-6"></i></button><div class="flex gap-2"><button v-if="currentItem.authorId === user.uid" @click="setView('reportForm', currentItem)" class="px-6 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-xs">編集</button><button v-if="currentItem.authorId === user.uid || userProfile.role === 'OM'" @click="deleteItem('reports', currentItem.id)" class="px-6 py-2 bg-red-50 text-red-500 rounded-xl font-black text-xs">削除</button></div></div>
                                 <div class="bg-white rounded-[3rem] p-10 border shadow-sm space-y-10">
-                                    <div class="flex flex-wrap items-center gap-3 mb-2"><span class="bg-slate-900 text-white text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest">{{currentItem.month}} REPORT</span><span class="bg-indigo-50 text-indigo-700 text-[10px] font-black px-4 py-1.5 rounded-full uppercase">{{currentItem.team}}</span></div><h2 class="text-4xl font-black text-slate-900 leading-tight border-b pb-8">{{currentItem.title}}</h2>
+                                    <div class="flex flex-wrap items-center gap-3 mb-2"><span class="bg-slate-900 text-white text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest">{{currentItem.month}} REPORT</span><span class="bg-indigo-50 text-indigo-700 text-[10px] font-black px-4 py-1.5 rounded-full uppercase">{{currentItem.office}} / {{currentItem.team}}</span></div><h2 class="text-4xl font-black text-slate-900 leading-tight border-b pb-8">{{maskText(currentItem.title)}}</h2>
                                     <div class="space-y-12">
-                                        <div><h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">営業情報</h3><p class="text-lg font-bold text-slate-700 whitespace-pre-wrap pl-4 border-l-4 border-indigo-100">{{currentItem.salesInfo || '特になし'}}</p></div>
+                                        <div><h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">営業情報</h3><p class="text-lg font-bold text-slate-700 whitespace-pre-wrap pl-4 border-l-4 border-indigo-100">{{maskText(currentItem.salesInfo) || '特になし'}}</p></div>
                                         <div class="space-y-8 pt-8 border-t"><h3 class="text-sm font-black text-indigo-600 uppercase tracking-widest">■ 月次報告</h3>
-                                            <div class="grid md:grid-cols-2 gap-8"><div class="bg-slate-50 p-6 rounded-3xl border border-slate-100"><div class="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">1. 来月残業見込み</div><div class="text-3xl font-black text-indigo-600 mb-2">{{currentItem.nextMonthOvertime || '0'}} <span class="text-xs text-slate-400">h前後</span></div><div class="text-xs font-bold text-slate-500 italic">理由: {{currentItem.nextMonthOvertimeReason || '特になし'}}</div></div><div class="bg-slate-50 p-6 rounded-3xl border border-slate-100"><div class="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">2. 今月残業見込み</div><div class="text-3xl font-black text-indigo-600 mb-2">{{currentItem.thisMonthOvertime || '0'}} <span class="text-xs text-slate-400">h前後</span></div><div class="text-xs font-bold text-slate-500 italic">理由: {{currentItem.thisMonthOvertimeReason || '特になし'}}</div></div></div>
-                                            <div class="pt-8"><h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">3. コンディション自己診断</h3><div class="grid grid-cols-4 sm:grid-cols-7 gap-3"><div v-for="item in CONDITION_ITEMS" :key="item.id" class="text-center bg-slate-50 rounded-2xl py-5 border border-slate-100 shadow-sm"><div class="text-[9px] font-black text-slate-300 uppercase mb-2">{{item.label}}</div><div class="text-xl font-black text-slate-900">{{currentItem.condition?.[item.id] || '○'}}</div></div></div></div>
-                                            <div class="pt-8 border-t"><h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">4. コメント</h3><div class="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden font-medium text-lg leading-relaxed whitespace-pre-wrap"><i data-lucide="quote" class="w-16 h-16 absolute -bottom-4 -right-4 opacity-10 rotate-12"></i>{{currentItem.comments}}</div></div>
+                                            <div class="grid md:grid-cols-2 gap-8"><div class="bg-slate-50 p-6 rounded-3xl border border-slate-100"><div class="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">1. 来月残業見込み</div><div class="text-3xl font-black text-indigo-600 mb-2">{{currentItem.nextMonthOvertime || '0'}} <span class="text-xs text-slate-400">h前後</span></div><div class="text-xs font-bold text-slate-500 italic">理由: {{maskText(currentItem.nextMonthOvertimeReason) || '特になし'}}</div></div><div class="bg-slate-50 p-6 rounded-3xl border border-slate-100"><div class="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">2. 今月残業見込み</div><div class="text-3xl font-black text-indigo-600 mb-2">{{currentItem.thisMonthOvertime || '0'}} <span class="text-xs text-slate-400">h前後</span></div><div class="text-xs font-bold text-slate-500 italic">理由: {{maskText(currentItem.thisMonthOvertimeReason) || '特になし'}}</div></div></div>
+                                            <div class="pt-8"><h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">3. コンディション自己診断</h3><div class="grid grid-cols-4 sm:grid-cols-7 gap-3"><div v-for="item in CONDITION_ITEMS" :key="item.id" class="text-center bg-slate-50 rounded-2xl py-5 border border-slate-100 shadow-sm"><div class="text-[9px] font-black text-slate-300 uppercase mb-2">{{item.label}}</div><div class="text-xl font-black text-slate-900">{{isMasked ? '●' : (currentItem.condition?.[item.id] || '○')}}</div></div></div></div>
+                                            <div class="pt-8 border-t"><h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">4. コメント</h3><div class="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden font-medium text-lg leading-relaxed whitespace-pre-wrap"><i data-lucide="quote" class="w-16 h-16 absolute -bottom-4 -right-4 opacity-10 rotate-12"></i>{{maskText(currentItem.comments)}}</div></div>
+                                        </div>
+                                        <div class="pt-8 border-t space-y-4">
+                                            <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">5. 回答</h3>
+                                            <div v-if="currentItem.adminFeedback" class="bg-indigo-50 border border-indigo-100 p-6 rounded-[2rem] space-y-2">
+                                                <p class="text-sm font-bold text-indigo-900 whitespace-pre-wrap">{{maskText(currentItem.adminFeedback.comment)}}</p>
+                                                <p class="text-[10px] font-black text-indigo-400 uppercase">{{currentItem.adminFeedback.responderName}}（{{ROLES[currentItem.adminFeedback.responderRole]?.label}}） - {{new Date(currentItem.adminFeedback.respondedAt).toLocaleString('ja-JP')}}</p>
+                                            </div>
+                                            <div v-else class="text-xs font-bold text-slate-300 uppercase tracking-widest py-6 text-center border-2 border-dashed rounded-2xl">回答はまだ登録されていません</div>
+                                            <div v-if="canGiveFeedback" class="pt-4 space-y-3">
+                                                <textarea v-model="feedbackDraft" rows="4" maxlength="2000" class="w-full p-5 bg-slate-50 rounded-2xl font-bold text-sm" placeholder="回答コメントを入力（最大2000文字）"></textarea>
+                                                <p v-if="feedbackDeadlinePassed" class="text-[10px] font-black text-red-400">回答受付期間（報告月の翌月{{DEADLINE_DAY}}日）を過ぎています</p>
+                                                <button @click="saveFeedback" :disabled="!feedbackDraft.trim() || feedbackDeadlinePassed" class="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm shadow-lg disabled:opacity-30">回答を公開する</button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -663,12 +961,19 @@
 
                             <!-- Trouble List View -->
                             <div v-if="view === 'troubleList'" class="space-y-6 animate-in fade-in">
-                                <div class="flex items-center justify-between"><div><h2 class="text-2xl font-black text-red-600">エスカレーション管理</h2><p class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Incident Management Board</p></div><button @click="setView('troubleForm')" class="bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-sm shadow-xl flex items-center gap-2 hover:bg-red-700 transition-all"><i data-lucide="alert-circle" class="w-4 h-4"></i> トラブル登録</button></div>
-                                <div v-if="escalations.length === 0" class="bg-white border-4 border-dashed rounded-[3rem] py-20 text-center text-slate-300">No active incidents</div>
+                                <div class="flex items-center justify-between"><div><h2 class="text-2xl font-black text-red-600">エスカレーション管理</h2><p class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Incident Management Board</p></div><button v-if="canCreateEscalation" @click="setView('troubleForm')" class="bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-sm shadow-xl flex items-center gap-2 hover:bg-red-700 transition-all"><i data-lucide="alert-circle" class="w-4 h-4"></i> トラブル登録</button></div>
+                                <div class="flex flex-wrap items-center gap-3 bg-white p-4 rounded-2xl border shadow-sm">
+                                    <label class="text-[10px] font-black text-slate-400 uppercase">ステータス</label>
+                                    <select v-model="escalationFilters.status" class="p-2 bg-slate-50 rounded-xl font-bold text-sm outline-none">
+                                        <option value="ALL">すべて</option>
+                                        <option v-for="s in TROUBLE_STATUS" :key="s.id" :value="s.id">{{s.label}}</option>
+                                    </select>
+                                </div>
+                                <div v-if="filteredEscalations.length === 0" class="bg-white border-4 border-dashed rounded-[3rem] py-20 text-center text-slate-300">No active incidents</div>
                                 <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div v-for="e in escalations" :key="e.id" @click="setView('troubleDetail', e)" class="bg-white p-8 rounded-[2.5rem] border-2 border-transparent hover:border-red-400 shadow-sm transition-all cursor-pointer group relative">
-                                        <div class="flex justify-between items-start mb-4"><span :class="TROUBLE_STATUS[e.status]?.color" class="px-3 py-1 rounded-full text-[9px] font-black uppercase">{{TROUBLE_STATUS[e.status]?.label}}</span><span :class="TROUBLE_SEVERITY[e.severity]?.color" class="text-[10px] font-black uppercase">重要度: {{TROUBLE_SEVERITY[e.severity]?.label}}</span></div><h3 class="text-2xl font-black mb-2 text-slate-900">{{e.title}}</h3><p class="text-xs font-bold text-slate-400 mb-6">対象メンバー: {{e.targetEmployeeName}}</p>
-                                        <div class="pt-6 border-t flex items-center justify-between text-[10px] font-black text-slate-400 uppercase"><span>担当: {{e.createdByName}}</span><i data-lucide="arrow-right" class="w-4 h-4 group-hover:translate-x-1 transition-all"></i></div>
+                                    <div v-for="e in filteredEscalations" :key="e.id" @click="setView('troubleDetail', e)" class="bg-white p-8 rounded-[2.5rem] border-2 border-transparent hover:border-red-400 shadow-sm transition-all cursor-pointer group relative">
+                                        <div class="flex justify-between items-start mb-4"><span :class="TROUBLE_STATUS[e.status]?.color" class="px-3 py-1 rounded-full text-[9px] font-black uppercase">{{TROUBLE_STATUS[e.status]?.label}}</span><span :class="TROUBLE_SEVERITY[e.severity]?.color" class="text-[10px] font-black uppercase">重要度: {{TROUBLE_SEVERITY[e.severity]?.label}}</span></div><h3 class="text-2xl font-black mb-2 text-slate-900">{{e.title}}</h3><p class="text-xs font-bold text-slate-400 mb-6">対象メンバー: {{e.targetEmployeeName}} ({{e.targetTeam}})</p>
+                                        <div class="pt-6 border-t flex items-center justify-between text-[10px] font-black text-slate-400 uppercase"><span>起票: {{e.createdByName}} / 期日: {{e.dueDate || '未設定'}}</span><i data-lucide="arrow-right" class="w-4 h-4 group-hover:translate-x-1 transition-all"></i></div>
                                     </div>
                                 </div>
                             </div>
@@ -678,10 +983,18 @@
                                 <div class="flex items-center gap-4 mb-6"><button @click="setView('troubleList')" class="p-3 bg-white rounded-2xl border shadow-sm"><i data-lucide="chevron-left" class="w-6 h-6"></i></button><h2 class="text-2xl font-black text-red-600">トラブル・エスカレーション登録</h2></div>
                                 <section class="bg-white p-10 rounded-[3rem] border shadow-sm space-y-8">
                                     <div class="grid md:grid-cols-2 gap-8"><div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">対象メンバー氏名</label><input v-model="troubleFormData.targetEmployeeName" type="text" class="w-full p-4 bg-slate-50 border-none rounded-2xl font-black"></div><div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">所属チーム</label><select v-model="troubleFormData.targetTeam" class="w-full p-4 bg-slate-50 border-none rounded-2xl font-black outline-none"><option v-for="t in activeTeams" :key="t" :value="t">{{t}}</option></select></div></div>
-                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">案件タイトル</label><input v-model="troubleFormData.title" type="text" class="w-full p-4 bg-slate-50 border-none rounded-2xl font-black"></div>
+                                    <div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">案件タイトル</label><input v-model="troubleFormData.title" type="text" maxlength="200" class="w-full p-4 bg-slate-50 border-none rounded-2xl font-black"></div>
                                     <div class="grid md:grid-cols-2 gap-8 pt-6 border-t"><div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2 block">重要度</label><div class="flex bg-slate-100 p-1.5 rounded-2xl"><button v-for="s in TROUBLE_SEVERITY" :key="s.id" @click="troubleFormData.severity = s.id" :class="troubleFormData.severity === s.id ? 'bg-white shadow-md ' + s.color : 'text-slate-400 opacity-60'" class="flex-1 py-3 rounded-xl text-[10px] font-black transition-all">{{s.label}}</button></div></div><div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2 block">現在のステータス</label><select v-model="troubleFormData.status" class="w-full p-4 bg-slate-50 border-none rounded-2xl font-black outline-none"><option v-for="s in TROUBLE_STATUS" :key="s.id" :value="s.id">{{s.label}}</option></select></div></div>
-                                    <div class="space-y-2 pt-6 border-t"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">詳細内容</label><textarea v-model="troubleFormData.description" rows="5" class="w-full p-6 bg-slate-50 border-none rounded-3xl font-bold"></textarea></div>
-                                    <div class="pt-10 flex gap-4"><button @click="setView('troubleList')" class="flex-1 py-5 border-2 rounded-3xl font-black text-slate-400">キャンセル</button><button @click="saveTrouble" :disabled="!troubleFormData.title" class="flex-[2] py-5 bg-red-600 text-white rounded-3xl font-black shadow-2xl disabled:opacity-30 transition-all">案件を起票</button></div>
+                                    <div class="grid md:grid-cols-2 gap-8 pt-6 border-t"><div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">対応期日 (必須)</label><input v-model="troubleFormData.dueDate" type="date" class="w-full p-4 bg-slate-50 border-none rounded-2xl font-black"></div><div class="space-y-2"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">完了期日{{troubleFormData.status === 'RESOLVED' ? '（必須）' : ''}}</label><input v-model="troubleFormData.resolvedDate" type="date" :disabled="troubleFormData.status !== 'RESOLVED'" class="w-full p-4 bg-slate-50 border-none rounded-2xl font-black disabled:opacity-40"></div></div>
+                                    <div class="space-y-2 pt-6 border-t"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">対応担当者</label>
+                                        <select v-model="troubleFormData.assigneeId" class="w-full p-4 bg-slate-50 border-none rounded-2xl font-black outline-none">
+                                            <option value="" :disabled="!!currentItem?.assigneeId">未設定</option>
+                                            <option v-for="emp in employees" :key="emp.employeeId" :value="emp.employeeId">{{emp.name}}（{{ROLES[emp.role]?.label}}）</option>
+                                        </select>
+                                        <p v-if="currentItem?.assigneeId" class="text-[10px] font-black text-slate-300 pl-2">一度設定した担当者は未設定に戻せません</p>
+                                    </div>
+                                    <div class="space-y-2 pt-6 border-t"><label class="text-[10px] font-black text-slate-400 uppercase pl-2">詳細内容</label><textarea v-model="troubleFormData.description" rows="5" maxlength="2000" class="w-full p-6 bg-slate-50 border-none rounded-3xl font-bold"></textarea></div>
+                                    <div class="pt-10 flex gap-4"><button @click="setView('troubleList')" class="flex-1 py-5 border-2 rounded-3xl font-black text-slate-400">キャンセル</button><button @click="saveTrouble" :disabled="!troubleFormData.title || !troubleFormData.targetEmployeeName || !troubleFormData.dueDate || (troubleFormData.status === 'RESOLVED' && !troubleFormData.resolvedDate)" class="flex-[2] py-5 bg-red-600 text-white rounded-3xl font-black shadow-2xl disabled:opacity-30 transition-all">{{currentItem ? '案件を更新' : '案件を起票'}}</button></div>
                                 </section>
                             </div>
 
@@ -689,15 +1002,21 @@
                             <div v-if="view === 'troubleDetail' && currentItem" class="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8 pb-40">
                                 <div class="lg:col-span-2 space-y-8">
                                     <div class="bg-white rounded-[3rem] p-10 border shadow-sm relative overflow-hidden">
-                                        <div class="flex items-center justify-between mb-8"><button @click="setView('troubleList')" class="p-3 bg-slate-100 rounded-2xl"><i data-lucide="arrow-left" class="w-5 h-5"></i></button><div class="flex gap-2"><button @click="setView('troubleForm', currentItem)" class="p-3 bg-indigo-50 text-indigo-600 rounded-xl"><i data-lucide="edit-3" class="w-4 h-4"></i></button><button @click="deleteItem('escalations', currentItem.id)" class="p-3 bg-red-50 text-red-500 rounded-xl"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div></div>
-                                        <div class="border-b pb-8 mb-8"><div class="flex items-center gap-3 mb-4"><span :class="TROUBLE_STATUS[currentItem.status]?.color" class="px-3 py-1 rounded-full text-[9px] font-black uppercase">{{TROUBLE_STATUS[currentItem.status]?.label}}</span><span class="text-[10px] font-black text-red-500 uppercase">Severity: {{TROUBLE_SEVERITY[currentItem.severity]?.label}}</span></div><h2 class="text-3xl font-black text-slate-900 leading-tight">{{currentItem.title}}</h2><p class="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Target: {{currentItem.targetEmployeeName}} ({{currentItem.targetTeam}})</p></div>
+                                        <div class="flex items-center justify-between mb-8"><button @click="setView('troubleList')" class="p-3 bg-slate-100 rounded-2xl"><i data-lucide="arrow-left" class="w-5 h-5"></i></button><div class="flex gap-2"><button v-if="canEditEscalation" @click="setView('troubleForm', currentItem)" class="p-3 bg-indigo-50 text-indigo-600 rounded-xl"><i data-lucide="edit-3" class="w-4 h-4"></i></button></div></div>
+                                        <div class="border-b pb-8 mb-8"><div class="flex items-center gap-3 mb-4"><span :class="TROUBLE_STATUS[currentItem.status]?.color" class="px-3 py-1 rounded-full text-[9px] font-black uppercase">{{TROUBLE_STATUS[currentItem.status]?.label}}</span><span class="text-[10px] font-black text-red-500 uppercase">Severity: {{TROUBLE_SEVERITY[currentItem.severity]?.label}}</span></div><h2 class="text-3xl font-black text-slate-900 leading-tight">{{currentItem.title}}</h2><p class="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Target: {{currentItem.targetEmployeeName}} ({{currentItem.targetTeam}})</p>
+                                            <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-xs font-bold text-slate-500">
+                                                <div>対応期日: <span class="text-slate-800">{{currentItem.dueDate || '未設定'}}</span></div>
+                                                <div v-if="currentItem.status === 'RESOLVED'">完了期日: <span class="text-slate-800">{{currentItem.resolvedDate || '未設定'}}</span></div>
+                                                <div>対応担当者: <span class="text-slate-800">{{currentItem.assigneeName || '未設定'}}</span></div>
+                                            </div>
+                                        </div>
                                         <div class="space-y-8">
-                                            <div><h3 class="text-[10px] font-black text-slate-400 uppercase mb-4">内容・原因</h3><p class="text-lg font-medium leading-relaxed whitespace-pre-wrap text-slate-700 bg-slate-50 p-6 rounded-[2rem] border border-slate-100">{{currentItem.description}}</p></div>
+                                            <div><h3 class="text-[10px] font-black text-slate-400 uppercase mb-4">内容・原因</h3><p class="text-lg font-medium leading-relaxed whitespace-pre-wrap text-slate-700 bg-slate-50 p-6 rounded-[2rem] border border-slate-100">{{maskText(currentItem.description)}}</p></div>
                                             <div><h3 class="text-[10px] font-black text-slate-400 uppercase mb-6">対応履歴タイムライン</h3>
                                                 <div v-if="!currentItem.history || currentItem.history.length === 0" class="text-center py-10 text-slate-300 font-black text-xs uppercase">No history recorded</div>
                                                 <div v-else class="space-y-6 relative pl-6 border-l-2 border-slate-100 ml-4">
                                                     <div v-for="(log, idx) in currentItem.history" :key="idx" class="relative">
-                                                        <div class="absolute -left-[31px] top-1.5 w-4 h-4 bg-white border-4 border-red-500 rounded-full"></div><div class="bg-white p-5 rounded-2xl border shadow-sm"><p class="text-[10px] font-black text-slate-400 mb-2">{{log.date}} - {{log.author}}</p><p class="text-sm font-bold text-slate-700">{{log.text}}</p></div>
+                                                        <div class="absolute -left-[31px] top-1.5 w-4 h-4 bg-white border-4 border-red-500 rounded-full"></div><div class="bg-white p-5 rounded-2xl border shadow-sm"><p class="text-[10px] font-black text-slate-400 mb-2">{{log.date}} - {{log.author}}</p><p class="text-sm font-bold text-slate-700">{{maskText(log.text)}}</p></div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -709,7 +1028,7 @@
                                         <h3 class="text-sm font-black text-red-700 uppercase mb-6 flex items-center gap-2"><i data-lucide="plus-circle" class="w-5 h-5"></i> 経緯を追加記録</h3>
                                         <div class="space-y-4">
                                             <div class="space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase block mb-2">ステータス更新</label><div class="flex bg-white p-1 rounded-xl shadow-sm border"><button v-for="s in TROUBLE_STATUS" :key="s.id" @click="updateTroubleStatus(s.id)" :class="currentItem.status === s.id ? s.color + ' shadow-sm' : 'text-slate-300'" class="flex-1 py-2 rounded-lg text-[9px] font-black transition-all">{{s.label}}</button></div></div>
-                                            <div class="space-y-1 pt-4"><label class="text-[10px] font-black text-slate-400 uppercase block mb-2">対応ログ</label><textarea v-model="troubleLogText" rows="4" class="w-full p-4 rounded-2xl border-none outline-none font-bold text-sm shadow-inner" placeholder="進捗を記入..."></textarea></div>
+                                            <div class="space-y-1 pt-4"><label class="text-[10px] font-black text-slate-400 uppercase block mb-2">対応ログ</label><textarea v-model="troubleLogText" rows="4" maxlength="2000" class="w-full p-4 rounded-2xl border-none outline-none font-bold text-sm shadow-inner" placeholder="進捗を記入..."></textarea></div>
                                             <button @click="addTroubleLog" :disabled="!troubleLogText" class="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-xs shadow-lg hover:bg-red-700 disabled:opacity-30 transition-all flex items-center justify-center gap-2"><i data-lucide="save" class="w-4 h-4"></i> 保存する</button>
                                         </div>
                                     </div>

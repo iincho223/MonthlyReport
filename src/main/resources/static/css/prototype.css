@@ -107,6 +107,7 @@ body {
 
 .input-shell {
   width: 100%;
+  box-sizing: border-box;
   border: 2px solid transparent;
   border-radius: 1rem;
   background: #f9fafb;
