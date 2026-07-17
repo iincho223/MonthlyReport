@@ -26,6 +26,6 @@ public class RoleEntity extends BaseEntity {
   private String roleName;
 
   /** 権限序列 */
-  @Column(name = "role_rank", nullable = false)
+  @Column(name = "role_rank", nullable = false, columnDefinition = "tinyint")
   private int roleRank;
 }

@@ -1,6 +1,8 @@
 package co.jp.monthlyreport.api.common;
 
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -14,6 +16,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * アウトプット: クライアント仕様に沿った ApiResponse を保持する ResponseEntity。
  */
 public class GlobalExceptionHandler {
+
+  private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
   /**
    * 業務例外を resultCd 付きの正常レスポンス形式で返す。
@@ -68,6 +72,8 @@ public class GlobalExceptionHandler {
    */
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiResponse> handleSystem(Exception ex) {
+    // 想定外例外はレスポンスへ出さないため、原因追跡できるようサーバーログへ記録する。
+    log.error("想定外のシステムエラーが発生しました。", ex);
     // 内部詳細は隠蔽し、利用者向けの固定メッセージを返す。
     return ResponseEntity.ok(ApiResponse.systemError("システムエラーが発生しました"));
   }

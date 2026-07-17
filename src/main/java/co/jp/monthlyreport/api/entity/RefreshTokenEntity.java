@@ -19,7 +19,7 @@ public class RefreshTokenEntity extends BaseEntity {
 
   /** トークンID（ULID） */
   @Id
-  @Column(name = "token_id", length = 26)
+  @Column(name = "token_id", columnDefinition = "char(26)")
   private String tokenId;
 
   /** ユーザーID */

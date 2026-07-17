@@ -19,7 +19,7 @@ public class EscalationLogEntity extends BaseEntity {
 
   /** ログID（ULID） */
   @Id
-  @Column(name = "log_id", length = 26)
+  @Column(name = "log_id", columnDefinition = "char(26)")
   private String logId;
 
   /** 対象エスカレーションID */

@@ -18,11 +18,11 @@ public class ReportEntity extends BaseEntity {
 
   /** 月報ID（ULID） */
   @Id
-  @Column(name = "report_id", length = 26)
+  @Column(name = "report_id", columnDefinition = "char(26)")
   private String reportId;
 
   /** 対象月（yyyy-MM） */
-  @Column(name = "report_month", nullable = false, length = 7)
+  @Column(name = "report_month", nullable = false, columnDefinition = "char(7)")
   private String reportMonth;
 
   /** 営業情報 */
@@ -30,7 +30,7 @@ public class ReportEntity extends BaseEntity {
   private String salesInfo;
 
   /** 来月残業見込み時間 */
-  @Column(name = "next_month_overtime_hours")
+  @Column(name = "next_month_overtime_hours", columnDefinition = "smallint")
   private Integer nextMonthOvertimeHours;
 
   /** 来月残業見込み理由 */
@@ -38,7 +38,7 @@ public class ReportEntity extends BaseEntity {
   private String nextMonthOvertimeReason;
 
   /** 今月残業実績時間 */
-  @Column(name = "this_month_overtime_hours")
+  @Column(name = "this_month_overtime_hours", columnDefinition = "smallint")
   private Integer thisMonthOvertimeHours;
 
   /** 今月残業実績理由 */

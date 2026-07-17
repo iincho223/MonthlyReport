@@ -18,7 +18,7 @@ public class ReportConditionEntity extends BaseEntity {
 
   /** 月報ID（reports.report_id と 1:1） */
   @Id
-  @Column(name = "report_id", length = 26)
+  @Column(name = "report_id", columnDefinition = "char(26)")
   private String reportId;
 
   @Column(name = "physical", nullable = false, length = 10)
