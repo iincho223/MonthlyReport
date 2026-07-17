@@ -7,12 +7,14 @@ import co.jp.monthlyreport.api.common.MessageKeys;
 import co.jp.monthlyreport.api.common.ResponseKeys;
 import co.jp.monthlyreport.api.dto.request.TeamCreateRequest;
 import co.jp.monthlyreport.api.dto.request.TeamSearchRequest;
-import co.jp.monthlyreport.api.model.GroupRecord;
-import co.jp.monthlyreport.api.model.TeamRecord;
-import co.jp.monthlyreport.api.model.UserAccount;
+import co.jp.monthlyreport.api.entity.GroupEntity;
+import co.jp.monthlyreport.api.entity.TeamEntity;
+import co.jp.monthlyreport.api.entity.UserEntity;
 import co.jp.monthlyreport.api.model.UserRole;
-import co.jp.monthlyreport.api.repository.InMemoryDataStore;
-import java.util.ArrayList;
+import co.jp.monthlyreport.api.repository.GroupRepository;
+import co.jp.monthlyreport.api.repository.TeamRepository;
+import co.jp.monthlyreport.api.repository.UserRepository;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -29,11 +31,16 @@ import org.springframework.stereotype.Service;
  */
 public class TeamService {
 
-  private final InMemoryDataStore dataStore;
+  private final TeamRepository teamRepository;
+  private final GroupRepository groupRepository;
+  private final UserRepository userRepository;
   private final MessageSource messageSource;
 
-  public TeamService(InMemoryDataStore dataStore, MessageSource messageSource) {
-    this.dataStore = dataStore;
+  public TeamService(TeamRepository teamRepository, GroupRepository groupRepository,
+      UserRepository userRepository, MessageSource messageSource) {
+    this.teamRepository = teamRepository;
+    this.groupRepository = groupRepository;
+    this.userRepository = userRepository;
     this.messageSource = messageSource;
   }
 
@@ -52,7 +59,7 @@ public class TeamService {
     int page = request.page() == null ? 1 : request.page();
     int size = request.size() == null ? 20 : request.size();
 
-    List<TeamRecord> filtered = scopedTeams(user).stream()
+    List<TeamEntity> filtered = scopedTeams(user).stream()
         .filter(t -> request.groupCode() == null || request.groupCode().isBlank() || request.groupCode().equals(t.getGroupCode()))
         .filter(t -> request.teamName() == null || request.teamName().isBlank() || t.getTeamName().contains(request.teamName()))
         .sorted((a, b) -> a.getTeamCode().compareTo(b.getTeamCode()))
@@ -83,32 +90,36 @@ public class TeamService {
     if (!canManage(user)) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.TEAM_NO_CREATE_PERMISSION));
     }
-    GroupRecord group = dataStore.findGroupByCode(request.groupCode())
-        .filter(g -> !g.isDeleted())
+    GroupEntity group = groupRepository.findByGroupCodeAndDeleteFlagFalse(request.groupCode())
         .orElseThrow(() -> new BusinessException(ErrorCodes.GROUP_404, msg(MessageKeys.TEAM_GROUP_NOT_FOUND)));
 
     if (!canManageScope(user, group)) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.TEAM_NO_CREATE_SCOPE));
     }
-    UserAccount tlUser = dataStore.findUserById(request.tlUserId())
-        .filter(u -> !u.isDeleted())
+    UserEntity tlUser = userRepository.findByUserIdAndDeleteFlagFalse(request.tlUserId())
         .orElseThrow(() -> new BusinessException(ErrorCodes.USER_404, msg(MessageKeys.TEAM_TL_USER_NOT_FOUND)));
-    if (dataStore.findTeamByCode(request.teamCode()).filter(t -> !t.isDeleted()).isPresent()) {
+    if (teamRepository.existsByTeamCodeAndDeleteFlagFalse(request.teamCode())) {
       throw new BusinessException(ErrorCodes.TEAM_409, msg(MessageKeys.TEAM_DUPLICATE_CODE));
     }
 
-    TeamRecord team = new TeamRecord();
+    TeamEntity team = new TeamEntity();
     team.setTeamCode(request.teamCode());
     team.setTeamName(request.teamName());
     team.setGroupCode(request.groupCode());
     team.setOfficeCode(group.getOfficeCode());
     team.setTlUserId(request.tlUserId());
-    team.setDeleted(false);
-    dataStore.saveTeam(team);
+    team.setDeleteFlag(false);
+    team.setUpdatedAt(OffsetDateTime.now());
+    team.setUpdatedBy(user.employeeNo());
+    team.setRegisteredAt(OffsetDateTime.now());
+    team.setRegisteredBy(user.employeeNo());
+    teamRepository.save(team);
 
     // 指定ユーザーのロールを TL に更新する。
-    tlUser.setRole(UserRole.TL);
-    dataStore.registerUser(tlUser);
+    tlUser.setRoleCode(UserRole.TL.name());
+    tlUser.setUpdatedAt(OffsetDateTime.now());
+    tlUser.setUpdatedBy(user.employeeNo());
+    userRepository.save(tlUser);
 
     return Map.of(ResponseKeys.TEAM_CODE, team.getTeamCode(), ResponseKeys.TEAM_NAME, team.getTeamName());
   }
@@ -126,19 +137,19 @@ public class TeamService {
     if (!canManage(user)) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.TEAM_NO_DELETE_PERMISSION));
     }
-    TeamRecord team = dataStore.findTeamByCode(teamCode)
-        .filter(t -> !t.isDeleted())
+    TeamEntity team = teamRepository.findByTeamCodeAndDeleteFlagFalse(teamCode)
         .orElseThrow(() -> new BusinessException(ErrorCodes.TEAM_404, msg(MessageKeys.TEAM_NOT_FOUND)));
-    GroupRecord group = dataStore.findGroupByCode(team.getGroupCode())
-        .filter(g -> !g.isDeleted())
+    GroupEntity group = groupRepository.findByGroupCodeAndDeleteFlagFalse(team.getGroupCode())
         .orElseThrow(() -> new BusinessException(ErrorCodes.GROUP_404, msg(MessageKeys.TEAM_GROUP_NOT_FOUND)));
 
     if (!canManageScope(user, group)) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.TEAM_NO_DELETE_SCOPE));
     }
 
-    team.setDeleted(true);
-    dataStore.saveTeam(team);
+    team.setDeleteFlag(true);
+    team.setUpdatedAt(OffsetDateTime.now());
+    team.setUpdatedBy(user.employeeNo());
+    teamRepository.save(team);
     return Map.of(ResponseKeys.TEAM_CODE, team.getTeamCode(), ResponseKeys.DELETED, true);
   }
 
@@ -170,7 +181,7 @@ public class TeamService {
    * @param group 対象チームが所属するグループ
    * @return スコープ内の場合 true
    */
-  private boolean canManageScope(AuthUser user, GroupRecord group) {
+  private boolean canManageScope(AuthUser user, GroupEntity group) {
     if (user.role() == UserRole.SA) {
       return true;
     }
@@ -187,10 +198,8 @@ public class TeamService {
    * @param user 認証ユーザー
    * @return 参照可能なチーム一覧
    */
-  private List<TeamRecord> scopedTeams(AuthUser user) {
-    List<TeamRecord> all = new ArrayList<>(dataStore.findAllTeams()).stream()
-        .filter(t -> !t.isDeleted())
-        .toList();
+  private List<TeamEntity> scopedTeams(AuthUser user) {
+    List<TeamEntity> all = teamRepository.findByDeleteFlagFalse();
 
     if (user.role() == UserRole.SA) {
       return all;
@@ -200,8 +209,8 @@ public class TeamService {
     }
     // GL: 自グループ配下のチームのみ。
     return all.stream()
-        .filter(t -> dataStore.findGroupByCode(t.getGroupCode())
-            .filter(g -> !g.isDeleted() && g.getGlUserId().equals(user.userId()))
+        .filter(t -> groupRepository.findByGroupCodeAndDeleteFlagFalse(t.getGroupCode())
+            .filter(g -> g.getGlUserId().equals(user.userId()))
             .isPresent())
         .toList();
   }
@@ -212,12 +221,12 @@ public class TeamService {
    * @param team 対象チーム
    * @return レスポンス項目マップ
    */
-  private Map<String, Object> toItem(TeamRecord team) {
-    long memberCount = dataStore.findAllUsers().stream()
-        .filter(u -> !u.isDeleted() && team.getTeamCode().equals(u.getTeamCode()))
+  private Map<String, Object> toItem(TeamEntity team) {
+    long memberCount = userRepository.findByDeleteFlagFalse().stream()
+        .filter(u -> team.getTeamCode().equals(u.getTeamCode()))
         .count();
-    String groupName = dataStore.findGroupByCode(team.getGroupCode()).map(GroupRecord::getGroupName).orElse(null);
-    String tlUserName = dataStore.findUserById(team.getTlUserId()).map(UserAccount::getName).orElse(null);
+    String groupName = groupRepository.findByGroupCodeAndDeleteFlagFalse(team.getGroupCode()).map(GroupEntity::getGroupName).orElse(null);
+    String tlUserName = userRepository.findByUserIdAndDeleteFlagFalse(team.getTlUserId()).map(UserEntity::getUserName).orElse(null);
 
     Map<String, Object> item = new HashMap<>();
     item.put(ResponseKeys.TEAM_CODE, team.getTeamCode());

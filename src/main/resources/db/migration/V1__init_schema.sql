@@ -88,7 +88,6 @@ alter table teams add constraint fk_teams_tl foreign key (tl_user_id) references
 create table reports (
   report_id char(26) not null,
   report_month char(7) not null,
-  title varchar(100) not null,
   sales_info text null,
   next_month_overtime_hours smallint null,
   next_month_overtime_reason varchar(255) null,

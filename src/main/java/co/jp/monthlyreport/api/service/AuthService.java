@@ -5,16 +5,26 @@ import co.jp.monthlyreport.api.common.BusinessException;
 import co.jp.monthlyreport.api.common.ErrorCodes;
 import co.jp.monthlyreport.api.common.MessageKeys;
 import co.jp.monthlyreport.api.common.ResponseKeys;
+import co.jp.monthlyreport.api.common.UlidGenerator;
 import co.jp.monthlyreport.api.dto.request.LoginRequest;
-import co.jp.monthlyreport.api.model.UserAccount;
-import co.jp.monthlyreport.api.repository.InMemoryDataStore;
+import co.jp.monthlyreport.api.entity.RefreshTokenEntity;
+import co.jp.monthlyreport.api.entity.UserEntity;
+import co.jp.monthlyreport.api.model.UserRole;
+import co.jp.monthlyreport.api.repository.RefreshTokenRepository;
+import co.jp.monthlyreport.api.repository.UserRepository;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.context.MessageSource;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -22,15 +32,24 @@ import org.springframework.stereotype.Service;
  * 認証処理とトークン管理を行うサービス。
  * インプット: ログイン情報、認可ヘッダ、リフレッシュトークン。
  * アウトプット: 認証済みユーザー情報とトークン発行結果。
+ *
+ * <p>アクセストークンは単一インスタンス運用を前提としたサーバーメモリ管理とする
+ * （DB設計.md に対応テーブルを設けていないため）。リフレッシュトークンのみ
+ * {@code refresh_tokens} テーブルへハッシュ化して永続化する。</p>
  */
 public class AuthService {
-  private final InMemoryDataStore dataStore;
-  private final MessageSource messageSource;
-  private final Map<String, TokenSession> accessTokens = new ConcurrentHashMap<>();
-  private final Map<String, RefreshSession> refreshTokens = new ConcurrentHashMap<>();
+  private static final long ACCESS_TOKEN_TTL_SECONDS = 3600L;
+  private static final long REFRESH_TOKEN_TTL_SECONDS = 60L * 60L * 24L * 7L;
 
-  public AuthService(InMemoryDataStore dataStore, MessageSource messageSource) {
-    this.dataStore = dataStore;
+  private final UserRepository userRepository;
+  private final RefreshTokenRepository refreshTokenRepository;
+  private final MessageSource messageSource;
+  private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+  private final Map<String, TokenSession> accessTokens = new ConcurrentHashMap<>();
+
+  public AuthService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository, MessageSource messageSource) {
+    this.userRepository = userRepository;
+    this.refreshTokenRepository = refreshTokenRepository;
     this.messageSource = messageSource;
   }
 
@@ -44,12 +63,12 @@ public class AuthService {
    */
   public Map<String, Object> login(LoginRequest request) {
     // 社員番号に紐づく有効ユーザーを検索する。
-    UserAccount account = dataStore.findUserByEmployeeNo(request.employeeNo())
-        .filter(u -> u.isActive() && !u.isDeleted())
+    UserEntity account = userRepository.findByEmployeeNoAndDeleteFlagFalse(request.employeeNo())
+        .filter(UserEntity::isActive)
         .orElseThrow(() -> new BusinessException(ErrorCodes.AUTH_001, msg(MessageKeys.AUTH_LOGIN_FAILED)));
 
     // パスワード不一致時は認証失敗とする。
-    if (!account.getPassword().equals(request.password())) {
+    if (!passwordEncoder.matches(request.password(), account.getPasswordHash())) {
       throw new BusinessException(ErrorCodes.AUTH_001, msg(MessageKeys.AUTH_LOGIN_FAILED));
     }
 
@@ -66,19 +85,17 @@ public class AuthService {
    * @return 再発行結果
    */
   public Map<String, Object> refresh(String refreshToken) {
-    RefreshSession session = refreshTokens.get(refreshToken);
-    // セッションが存在しない場合は無効トークン扱い。
-    if (session == null) {
-      throw new BusinessException(ErrorCodes.AUTH_002, msg(MessageKeys.AUTH_REFRESH_TOKEN_INVALID));
-    }
-    // 失効または無効化済みトークンは再発行不可。
-    if (session.revoked || session.expiresAt.isBefore(Instant.now())) {
+    RefreshTokenEntity session = refreshTokenRepository.findByTokenHashAndRevokedAtIsNull(hashToken(refreshToken))
+        .orElseThrow(() -> new BusinessException(ErrorCodes.AUTH_002, msg(MessageKeys.AUTH_REFRESH_TOKEN_INVALID)));
+    // 失効済みまたは期限切れトークンは再発行不可。
+    if (session.getExpiresAt().isBefore(OffsetDateTime.now())) {
       throw new BusinessException(ErrorCodes.AUTH_003, msg(MessageKeys.AUTH_REFRESH_TOKEN_EXPIRED));
     }
     // 紐づくユーザー情報を取得して再発行処理へ進む。
-    UserAccount account = dataStore.findUserById(session.userId)
+    UserEntity account = userRepository.findByUserIdAndDeleteFlagFalse(session.getUserId())
         .orElseThrow(() -> new BusinessException(ErrorCodes.AUTH_001, msg(MessageKeys.AUTH_USER_NOT_FOUND)));
-    session.revoked = true;
+    session.setRevokedAt(OffsetDateTime.now());
+    refreshTokenRepository.save(session);
     return issueTokens(account);
   }
 
@@ -93,12 +110,13 @@ public class AuthService {
   public Map<String, Object> logout(String authorizationHeader) {
     // 認可ヘッダからログインユーザーを解決する。
     AuthUser user = resolveAuthUser(authorizationHeader);
-    // 同一ユーザーのリフレッシュトークンを全て無効化する。
-    refreshTokens.values().forEach(rt -> {
-      if (rt.userId.equals(user.userId())) {
-        rt.revoked = true;
-      }
-    });
+    // 同一ユーザーの未失効リフレッシュトークンを全て無効化する。
+    refreshTokenRepository.findAll().stream()
+        .filter(rt -> rt.getUserId().equals(user.userId()) && rt.getRevokedAt() == null)
+        .forEach(rt -> {
+          rt.setRevokedAt(OffsetDateTime.now());
+          refreshTokenRepository.save(rt);
+        });
     // 同一ユーザーのアクセストークンを削除する。
     accessTokens.entrySet().removeIf(e -> e.getValue().userId.equals(user.userId()));
     return Map.of(ResponseKeys.SUCCESS, true);
@@ -121,8 +139,8 @@ public class AuthService {
       throw new BusinessException(ErrorCodes.AUTH_001, msg(MessageKeys.AUTH_UNAUTHORIZED));
     }
     // 有効なユーザー情報のみ認証ユーザーとして返す。
-    UserAccount account = dataStore.findUserById(session.userId)
-        .filter(u -> u.isActive() && !u.isDeleted())
+    UserEntity account = userRepository.findByUserIdAndDeleteFlagFalse(session.userId)
+        .filter(UserEntity::isActive)
         .orElseThrow(() -> new BusinessException(ErrorCodes.AUTH_001, msg(MessageKeys.AUTH_USER_DISABLED)));
     return toAuthUser(account);
   }
@@ -147,28 +165,39 @@ public class AuthService {
    * @param account 認証済みユーザー
    * @return トークン発行結果
    */
-  private Map<String, Object> issueTokens(UserAccount account) {
+  private Map<String, Object> issueTokens(UserEntity account) {
     // 一意なトークン文字列を生成する。
     String accessToken = UUID.randomUUID().toString();
     String refreshToken = UUID.randomUUID().toString();
-    long expiresIn = 3600L;
 
-    // アクセス/リフレッシュの有効期限付きセッションを保存する。
-    accessTokens.put(accessToken, new TokenSession(account.getUserId(), Instant.now().plusSeconds(expiresIn)));
-    refreshTokens.put(refreshToken, new RefreshSession(account.getUserId(), Instant.now().plusSeconds(60L * 60L * 24L * 7L), false));
+    // アクセストークンはサーバーメモリ上に有効期限付きで保持する。
+    accessTokens.put(accessToken, new TokenSession(account.getUserId(), Instant.now().plusSeconds(ACCESS_TOKEN_TTL_SECONDS)));
+
+    // リフレッシュトークンはハッシュ化して DB へ永続化する。
+    RefreshTokenEntity refreshEntity = new RefreshTokenEntity();
+    refreshEntity.setTokenId(UlidGenerator.generate());
+    refreshEntity.setUserId(account.getUserId());
+    refreshEntity.setTokenHash(hashToken(refreshToken));
+    refreshEntity.setExpiresAt(OffsetDateTime.now().plusSeconds(REFRESH_TOKEN_TTL_SECONDS));
+    refreshEntity.setDeleteFlag(false);
+    refreshEntity.setUpdatedAt(OffsetDateTime.now());
+    refreshEntity.setUpdatedBy(account.getEmployeeNo());
+    refreshEntity.setRegisteredAt(OffsetDateTime.now());
+    refreshEntity.setRegisteredBy(account.getEmployeeNo());
+    refreshTokenRepository.save(refreshEntity);
 
     Map<String, Object> profile = Map.of(
         ResponseKeys.USER_ID, account.getUserId(),
         ResponseKeys.EMPLOYEE_NO, account.getEmployeeNo(),
-        ResponseKeys.NAME, account.getName(),
-        ResponseKeys.ROLE, account.getRole().name(),
+        ResponseKeys.NAME, account.getUserName(),
+        ResponseKeys.ROLE, account.getRoleCode(),
         ResponseKeys.OFFICE_CODE, account.getOfficeCode(),
         ResponseKeys.TEAM_CODE, account.getTeamCode());
 
     Map<String, Object> params = new HashMap<>();
     params.put(ResponseKeys.ACCESS_TOKEN, accessToken);
     params.put(ResponseKeys.REFRESH_TOKEN, refreshToken);
-    params.put(ResponseKeys.EXPIRES_IN, expiresIn);
+    params.put(ResponseKeys.EXPIRES_IN, ACCESS_TOKEN_TTL_SECONDS);
     params.put(ResponseKeys.USER_PROFILE, profile);
     return params;
   }
@@ -190,15 +219,31 @@ public class AuthService {
   }
 
   /**
-   * UserAccount を AuthUser へ変換する。
-   * インプット: account ユーザーアカウント。
+   * UserEntity を AuthUser へ変換する。
+   * インプット: account ユーザーエンティティ。
    * アウトプット: 認証ユーザー情報。
    *
-   * @param account ユーザーアカウント
+   * @param account ユーザーエンティティ
    * @return 認証ユーザー情報
    */
-  private AuthUser toAuthUser(UserAccount account) {
-    return new AuthUser(account.getUserId(), account.getEmployeeNo(), account.getName(), account.getRole(), account.getOfficeCode(), account.getTeamCode());
+  private AuthUser toAuthUser(UserEntity account) {
+    return new AuthUser(account.getUserId(), account.getEmployeeNo(), account.getUserName(),
+        UserRole.valueOf(account.getRoleCode()), account.getOfficeCode(), account.getTeamCode());
+  }
+
+  /**
+   * リフレッシュトークンの生値を SHA-256 でハッシュ化する（DB には生値を保存しない）。
+   *
+   * @param token トークン生値
+   * @return ハッシュ値（16進文字列）
+   */
+  private String hashToken(String token) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      return HexFormat.of().formatHex(digest.digest(token.getBytes(StandardCharsets.UTF_8)));
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 is not available", e);
+    }
   }
 
   private static final class TokenSession {
@@ -208,18 +253,6 @@ public class AuthService {
     private TokenSession(Long userId, Instant expiresAt) {
       this.userId = userId;
       this.expiresAt = expiresAt;
-    }
-  }
-
-  private static final class RefreshSession {
-    private final Long userId;
-    private final Instant expiresAt;
-    private boolean revoked;
-
-    private RefreshSession(Long userId, Instant expiresAt, boolean revoked) {
-      this.userId = userId;
-      this.expiresAt = expiresAt;
-      this.revoked = revoked;
     }
   }
 }

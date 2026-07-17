@@ -2,11 +2,10 @@ package co.jp.monthlyreport.api.service;
 
 import co.jp.monthlyreport.api.common.AuthUser;
 import co.jp.monthlyreport.api.common.ResponseKeys;
-import co.jp.monthlyreport.api.model.ReportRecord;
-import co.jp.monthlyreport.api.model.UserAccount;
+import co.jp.monthlyreport.api.entity.ReportEntity;
+import co.jp.monthlyreport.api.entity.UserEntity;
 import co.jp.monthlyreport.api.model.UserRole;
-import co.jp.monthlyreport.api.repository.InMemoryDataStore;
-import java.util.ArrayList;
+import co.jp.monthlyreport.api.repository.UserRepository;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,12 +20,14 @@ import org.springframework.stereotype.Service;
  * アウトプット: 月報件数・未回答件数・提出率・未提出メンバー一覧。
  */
 public class DashboardService {
-  private final ReportService reportService;
-  private final InMemoryDataStore dataStore;
+  private static final String STATUS_FEEDBACKED = "FEEDBACKED";
 
-  public DashboardService(ReportService reportService, InMemoryDataStore dataStore) {
+  private final ReportService reportService;
+  private final UserRepository userRepository;
+
+  public DashboardService(ReportService reportService, UserRepository userRepository) {
     this.reportService = reportService;
-    this.dataStore = dataStore;
+    this.userRepository = userRepository;
   }
 
   /**
@@ -40,11 +41,11 @@ public class DashboardService {
    */
   public Map<String, Object> summary(AuthUser user, String month) {
     // ユーザーの参照スコープに合わせて月報を絞り込む。
-    List<ReportRecord> scoped = reportService.scopedReports(user).stream()
-        .filter(r -> month == null || month.isBlank() || month.equals(r.getMonth()))
+    List<ReportEntity> scoped = reportService.scopedReports(user).stream()
+        .filter(r -> month == null || month.isBlank() || month.equals(r.getReportMonth()))
         .toList();
 
-    long pending = scoped.stream().filter(r -> !r.hasFeedback()).count();
+    long pending = scoped.stream().filter(r -> !STATUS_FEEDBACKED.equals(r.getStatus())).count();
     long submitted = scoped.size();
 
     Map<String, Object> result = new HashMap<>();
@@ -54,8 +55,8 @@ public class DashboardService {
 
     // TL 以上のみ提出率・未提出メンバー一覧を返却する。
     if (user.role() != UserRole.NG && user.role() != UserRole.TM) {
-      result.put(ResponseKeys.SUBMISSION_RATE, calcSubmissionRate(user, month, scoped));
-      result.put(ResponseKeys.UNSUBMITTED_MEMBERS, calcUnsubmittedMembers(user, month, scoped));
+      result.put(ResponseKeys.SUBMISSION_RATE, calcSubmissionRate(user, scoped));
+      result.put(ResponseKeys.UNSUBMITTED_MEMBERS, calcUnsubmittedMembers(user, scoped));
     } else {
       result.put(ResponseKeys.SUBMISSION_RATE, 0);
       result.put(ResponseKeys.UNSUBMITTED_MEMBERS, List.of());
@@ -67,15 +68,14 @@ public class DashboardService {
    * スコープ内メンバー全体の提出率(%)を算出する。
    *
    * @param user      認証ユーザー
-   * @param month     対象月
    * @param submitted 提出済み月報一覧
    * @return 提出率（0-100）
    */
-  private int calcSubmissionRate(AuthUser user, String month, List<ReportRecord> submitted) {
-    List<UserAccount> members = scopedMembers(user);
+  private int calcSubmissionRate(AuthUser user, List<ReportEntity> submitted) {
+    List<UserEntity> members = scopedMembers(user);
     if (members.isEmpty()) return 0;
     Set<Long> submittedUserIds = submitted.stream()
-        .map(ReportRecord::getAuthorUserId)
+        .map(ReportEntity::getAuthorUserId)
         .collect(Collectors.toSet());
     long submittedCount = members.stream().filter(m -> submittedUserIds.contains(m.getUserId())).count();
     return (int) Math.round(submittedCount * 100.0 / members.size());
@@ -85,34 +85,32 @@ public class DashboardService {
    * スコープ内メンバーのうち未提出者一覧を返す。
    *
    * @param user      認証ユーザー
-   * @param month     対象月
    * @param submitted 提出済み月報一覧
    * @return 未提出者リスト（employeeNo, name）
    */
-  private List<Map<String, Object>> calcUnsubmittedMembers(
-      AuthUser user, String month, List<ReportRecord> submitted) {
+  private List<Map<String, Object>> calcUnsubmittedMembers(AuthUser user, List<ReportEntity> submitted) {
     Set<Long> submittedIds = submitted.stream()
-        .map(ReportRecord::getAuthorUserId)
+        .map(ReportEntity::getAuthorUserId)
         .collect(Collectors.toSet());
     return scopedMembers(user).stream()
         .filter(m -> !submittedIds.contains(m.getUserId()))
         .map(m -> {
           Map<String, Object> entry = new HashMap<>();
           entry.put(ResponseKeys.EMPLOYEE_NO, m.getEmployeeNo());
-          entry.put(ResponseKeys.NAME, m.getName());
+          entry.put(ResponseKeys.NAME, m.getUserName());
           return entry;
         }).toList();
   }
 
   /**
-   * ロール別スコープのメンバー（REPORTER ロール）一覧を返す。
+   * ロール別スコープのメンバー一覧を返す。
    *
    * @param user 認証ユーザー
    * @return スコープ内メンバー
    */
-  private List<UserAccount> scopedMembers(AuthUser user) {
-    return new ArrayList<>(dataStore.findAllUsers()).stream()
-        .filter(u -> u.isActive() && !u.isDeleted())
+  private List<UserEntity> scopedMembers(AuthUser user) {
+    return userRepository.findByDeleteFlagFalse().stream()
+        .filter(UserEntity::isActive)
         .filter(u -> switch (user.role()) {
           case OM -> true;
           case GL -> user.officeCode().equals(u.getOfficeCode());

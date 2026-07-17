@@ -1114,3 +1114,41 @@ body {
   padding: 1rem;
   border: 1px dashed var(--border-subtle);
 }
+
+/* ==============================
+   エスカレーション ステータス直接変更
+   ============================== */
+.esc-status-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* ==============================
+   ユーザー管理 / 組織管理（管理画面共通テーブル）
+   ============================== */
+.admin-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.admin-table th {
+  color: var(--ink-500);
+  font-weight: 600;
+}
+
+.admin-table td {
+  color: var(--ink-700);
+}

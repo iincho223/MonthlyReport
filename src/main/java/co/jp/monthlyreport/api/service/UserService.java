@@ -7,12 +7,14 @@ import co.jp.monthlyreport.api.common.MessageKeys;
 import co.jp.monthlyreport.api.common.ResponseKeys;
 import co.jp.monthlyreport.api.dto.request.UserCreateRequest;
 import co.jp.monthlyreport.api.dto.request.UserSearchRequest;
-import co.jp.monthlyreport.api.model.GroupRecord;
-import co.jp.monthlyreport.api.model.TeamRecord;
-import co.jp.monthlyreport.api.model.UserAccount;
+import co.jp.monthlyreport.api.entity.GroupEntity;
+import co.jp.monthlyreport.api.entity.TeamEntity;
+import co.jp.monthlyreport.api.entity.UserEntity;
 import co.jp.monthlyreport.api.model.UserRole;
-import co.jp.monthlyreport.api.repository.InMemoryDataStore;
-import java.util.ArrayList;
+import co.jp.monthlyreport.api.repository.GroupRepository;
+import co.jp.monthlyreport.api.repository.TeamRepository;
+import co.jp.monthlyreport.api.repository.UserRepository;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -20,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.context.MessageSource;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -33,11 +36,17 @@ public class UserService {
   private static final Set<UserRole> ENGINEER_ROLES = Set.of(UserRole.NG, UserRole.TM);
   private static final Set<UserRole> SP_SM_CREATABLE_ROLES = Set.of(UserRole.NG, UserRole.TM, UserRole.SP, UserRole.SM);
 
-  private final InMemoryDataStore dataStore;
+  private final UserRepository userRepository;
+  private final GroupRepository groupRepository;
+  private final TeamRepository teamRepository;
   private final MessageSource messageSource;
+  private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-  public UserService(InMemoryDataStore dataStore, MessageSource messageSource) {
-    this.dataStore = dataStore;
+  public UserService(UserRepository userRepository, GroupRepository groupRepository,
+      TeamRepository teamRepository, MessageSource messageSource) {
+    this.userRepository = userRepository;
+    this.groupRepository = groupRepository;
+    this.teamRepository = teamRepository;
     this.messageSource = messageSource;
   }
 
@@ -75,8 +84,8 @@ public class UserService {
     int page = request.page() == null ? 1 : request.page();
     int size = request.size() == null ? 20 : request.size();
 
-    List<UserAccount> filtered = scopedUsers(user).stream()
-        .filter(u -> request.role() == null || request.role().isBlank() || request.role().equalsIgnoreCase(u.getRole().name()))
+    List<UserEntity> filtered = scopedUsers(user).stream()
+        .filter(u -> request.role() == null || request.role().isBlank() || request.role().equalsIgnoreCase(u.getRoleCode()))
         .filter(u -> request.officeCode() == null || request.officeCode().isBlank() || request.officeCode().equals(u.getOfficeCode()))
         .sorted((a, b) -> a.getEmployeeNo().compareTo(b.getEmployeeNo()))
         .collect(Collectors.toList());
@@ -88,8 +97,8 @@ public class UserService {
       Map<String, Object> item = new HashMap<>();
       item.put(ResponseKeys.USER_ID, u.getUserId());
       item.put(ResponseKeys.EMPLOYEE_NO, u.getEmployeeNo());
-      item.put(ResponseKeys.NAME, u.getName());
-      item.put(ResponseKeys.ROLE, u.getRole().name());
+      item.put(ResponseKeys.NAME, u.getUserName());
+      item.put(ResponseKeys.ROLE, u.getRoleCode());
       item.put(ResponseKeys.OFFICE_CODE, u.getOfficeCode());
       item.put(ResponseKeys.TEAM_CODE, u.getTeamCode());
       return item;
@@ -124,21 +133,24 @@ public class UserService {
     if (!canCreateInScope(user, role, request.officeCode(), request.teamCode())) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.USER_NO_CREATE_SCOPE));
     }
-    if (dataStore.findUserByEmployeeNo(request.employeeNo()).isPresent()) {
+    if (userRepository.existsByEmployeeNoAndDeleteFlagFalse(request.employeeNo())) {
       throw new BusinessException(ErrorCodes.USER_409, msg(MessageKeys.USER_DUPLICATE_EMPLOYEE_NO));
     }
 
-    UserAccount account = new UserAccount();
-    account.setUserId(dataStore.newUserId());
+    UserEntity account = new UserEntity();
     account.setEmployeeNo(request.employeeNo());
-    account.setName(request.name());
-    account.setPassword(request.password());
-    account.setRole(role);
+    account.setUserName(request.name());
+    account.setPasswordHash(passwordEncoder.encode(request.password()));
+    account.setRoleCode(role.name());
     account.setOfficeCode(request.officeCode());
     account.setTeamCode(request.teamCode());
     account.setActive(true);
-    account.setDeleted(false);
-    dataStore.registerUser(account);
+    account.setDeleteFlag(false);
+    account.setUpdatedAt(OffsetDateTime.now());
+    account.setUpdatedBy(user.employeeNo());
+    account.setRegisteredAt(OffsetDateTime.now());
+    account.setRegisteredBy(user.employeeNo());
+    userRepository.save(account);
 
     return Map.of(ResponseKeys.USER_ID, account.getUserId(), ResponseKeys.EMPLOYEE_NO, account.getEmployeeNo());
   }
@@ -155,8 +167,7 @@ public class UserService {
   public Map<String, Object> delete(AuthUser user, Long userId) {
     requireManagementAccess(user, MessageKeys.USER_NO_DELETE_PERMISSION);
 
-    UserAccount target = dataStore.findUserById(userId)
-        .filter(u -> !u.isDeleted())
+    UserEntity target = userRepository.findByUserIdAndDeleteFlagFalse(userId)
         .orElseThrow(() -> new BusinessException(ErrorCodes.USER_404, msg(MessageKeys.USER_NOT_FOUND)));
 
     // 自分自身のアカウントは削除不可。
@@ -167,8 +178,10 @@ public class UserService {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.USER_NO_DELETE_SCOPE));
     }
 
-    target.setDeleted(true);
-    dataStore.registerUser(target);
+    target.setDeleteFlag(true);
+    target.setUpdatedAt(OffsetDateTime.now());
+    target.setUpdatedBy(user.employeeNo());
+    userRepository.save(target);
     return Map.of(ResponseKeys.USER_ID, target.getUserId(), ResponseKeys.DELETED, true);
   }
 
@@ -200,10 +213,8 @@ public class UserService {
    * @param user 認証ユーザー
    * @return 参照可能なユーザー一覧
    */
-  private List<UserAccount> scopedUsers(AuthUser user) {
-    List<UserAccount> all = new ArrayList<>(dataStore.findAllUsers()).stream()
-        .filter(u -> !u.isDeleted())
-        .toList();
+  private List<UserEntity> scopedUsers(AuthUser user) {
+    List<UserEntity> all = userRepository.findByDeleteFlagFalse();
 
     if (user.role() == UserRole.SA) {
       return all;
@@ -214,13 +225,13 @@ public class UserService {
     if (user.role() == UserRole.SP || user.role() == UserRole.SM) {
       return all.stream()
           .filter(u -> u.getOfficeCode().equals(user.officeCode()))
-          .filter(u -> SP_SM_CREATABLE_ROLES.contains(u.getRole()))
+          .filter(u -> SP_SM_CREATABLE_ROLES.contains(UserRole.valueOf(u.getRoleCode())))
           .toList();
     }
     // GL: 自グループ配下チームのエンジニア（NG/TM）のみ。
     Set<String> teamCodes = ownGroupTeamCodes(user);
     return all.stream()
-        .filter(u -> ENGINEER_ROLES.contains(u.getRole()) && teamCodes.contains(u.getTeamCode()))
+        .filter(u -> ENGINEER_ROLES.contains(UserRole.valueOf(u.getRoleCode())) && teamCodes.contains(u.getTeamCode()))
         .toList();
   }
 
@@ -257,8 +268,8 @@ public class UserService {
    * @param target 削除対象ユーザー
    * @return スコープ内の場合 true
    */
-  private boolean canDeleteInScope(AuthUser user, UserAccount target) {
-    return canCreateInScope(user, target.getRole(), target.getOfficeCode(), target.getTeamCode());
+  private boolean canDeleteInScope(AuthUser user, UserEntity target) {
+    return canCreateInScope(user, UserRole.valueOf(target.getRoleCode()), target.getOfficeCode(), target.getTeamCode());
   }
 
   /**
@@ -268,13 +279,11 @@ public class UserService {
    * @return 自グループ配下のチームコード集合
    */
   private Set<String> ownGroupTeamCodes(AuthUser user) {
-    Set<String> ownGroupCodes = dataStore.findAllGroups().stream()
-        .filter(g -> !g.isDeleted() && g.getGlUserId().equals(user.userId()))
-        .map(GroupRecord::getGroupCode)
+    Set<String> ownGroupCodes = groupRepository.findByGlUserIdAndDeleteFlagFalse(user.userId()).stream()
+        .map(GroupEntity::getGroupCode)
         .collect(Collectors.toSet());
-    return dataStore.findAllTeams().stream()
-        .filter(t -> !t.isDeleted() && ownGroupCodes.contains(t.getGroupCode()))
-        .map(TeamRecord::getTeamCode)
+    return teamRepository.findByGroupCodeInAndDeleteFlagFalse(ownGroupCodes).stream()
+        .map(TeamEntity::getTeamCode)
         .collect(Collectors.toSet());
   }
 

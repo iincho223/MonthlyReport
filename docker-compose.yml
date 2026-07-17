@@ -7,14 +7,17 @@ services:
       - "8080:8080"
     environment:
       TZ: Asia/Tokyo
+      SPRING_DATASOURCE_URL: jdbc:mariadb://db:3306/monthlyreport
+      SPRING_DATASOURCE_USERNAME: monthlyreport
+      SPRING_DATASOURCE_PASSWORD: monthlyreport
     depends_on:
       db:
         condition: service_healthy
     networks:
       - monthlyreport-net
 
-  # 現在の実装(InMemoryDataStore)はDBに接続しないため、
-  # dbサービスはDB設計.md準拠のスキーマ検証・将来のJPA実装検証用として用意する。
+  # スキーマは Flyway (src/main/resources/db/migration) がアプリ起動時に適用するため、
+  # db サービスは空のMariaDBを用意するのみとする。
   db:
     image: mariadb:11.4
     environment:
@@ -27,7 +30,6 @@ services:
       - "3306:3306"
     volumes:
       - monthlyreport-db-data:/var/lib/mysql
-      - ./docker/mariadb/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s

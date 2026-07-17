@@ -5,26 +5,34 @@ import co.jp.monthlyreport.api.common.BusinessException;
 import co.jp.monthlyreport.api.common.ErrorCodes;
 import co.jp.monthlyreport.api.common.MessageKeys;
 import co.jp.monthlyreport.api.common.ResponseKeys;
+import co.jp.monthlyreport.api.common.UlidGenerator;
 import co.jp.monthlyreport.api.common.ValidationConstants;
 import co.jp.monthlyreport.api.dto.request.FeedbackUpdateRequest;
 import co.jp.monthlyreport.api.dto.request.ReportCreateRequest;
 import co.jp.monthlyreport.api.dto.request.ReportSearchRequest;
 import co.jp.monthlyreport.api.dto.request.ReportUpdateRequest;
-import co.jp.monthlyreport.api.model.ReportRecord;
+import co.jp.monthlyreport.api.entity.ReportConditionEntity;
+import co.jp.monthlyreport.api.entity.ReportEntity;
+import co.jp.monthlyreport.api.entity.ReportFeedbackEntity;
+import co.jp.monthlyreport.api.entity.UserEntity;
 import co.jp.monthlyreport.api.model.UserRole;
-import co.jp.monthlyreport.api.repository.InMemoryDataStore;
+import co.jp.monthlyreport.api.repository.ReportConditionRepository;
+import co.jp.monthlyreport.api.repository.ReportFeedbackRepository;
+import co.jp.monthlyreport.api.repository.ReportRepository;
+import co.jp.monthlyreport.api.repository.ReportSpecifications;
+import co.jp.monthlyreport.api.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.springframework.context.MessageSource;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -37,12 +45,22 @@ public class ReportService {
   private static final Set<String> REQUIRED_CONDITION_KEYS = Set.of(
       "physical", "stress", "relationships", "worries", "fatigue", "sleep", "motivation");
   private static final Set<String> CONDITION_VALUES = Set.of("BEST", "GOOD", "WARN", "NG");
+  private static final Set<String> VALID_STATUS_FILTERS = Set.of("ALL", "SUBMITTED", "PENDING_FEEDBACK", "FEEDBACKED");
+  private static final String STATUS_FEEDBACKED = "FEEDBACKED";
+  private static final String STATUS_SUBMITTED = "SUBMITTED";
 
-  private final InMemoryDataStore dataStore;
+  private final ReportRepository reportRepository;
+  private final ReportConditionRepository reportConditionRepository;
+  private final ReportFeedbackRepository reportFeedbackRepository;
+  private final UserRepository userRepository;
   private final MessageSource messageSource;
 
-  public ReportService(InMemoryDataStore dataStore, MessageSource messageSource) {
-    this.dataStore = dataStore;
+  public ReportService(ReportRepository reportRepository, ReportConditionRepository reportConditionRepository,
+      ReportFeedbackRepository reportFeedbackRepository, UserRepository userRepository, MessageSource messageSource) {
+    this.reportRepository = reportRepository;
+    this.reportConditionRepository = reportConditionRepository;
+    this.reportFeedbackRepository = reportFeedbackRepository;
+    this.userRepository = userRepository;
     this.messageSource = messageSource;
   }
 
@@ -59,31 +77,31 @@ public class ReportService {
     int page = request.page() == null ? 1 : request.page();
     int size = request.size() == null ? 20 : request.size();
     String status = request.status() == null || request.status().isBlank() ? "ALL" : request.status().toUpperCase(Locale.ROOT);
+    if (!VALID_STATUS_FILTERS.contains(status)) {
+      throw new BusinessException(ErrorCodes.VAL_001, msg(MessageKeys.REPORT_INVALID_STATUS));
+    }
 
-    List<ReportRecord> filtered = scopedReports(user).stream()
-        .filter(r -> request.month() == null || request.month().isBlank() || request.month().equals(r.getMonth()))
-        .filter(r -> statusFilter(status, r))
-        .sorted(Comparator.comparing(ReportRecord::getMonth).reversed().thenComparing(ReportRecord::getUpdatedAt, Comparator.reverseOrder()))
-        .collect(Collectors.toList());
+    var spec = ReportSpecifications.notDeleted()
+        .and(ReportSpecifications.visibleTo(user))
+        .and(ReportSpecifications.month(request.month()))
+        .and(ReportSpecifications.status(status));
+    Sort sort = Sort.by(Sort.Direction.DESC, "reportMonth").and(Sort.by(Sort.Direction.DESC, "updatedAt"));
+    Page<ReportEntity> pageResult = reportRepository.findAll(spec, PageRequest.of(page - 1, size, sort));
 
-    int from = Math.min((page - 1) * size, filtered.size());
-    int to = Math.min(from + size, filtered.size());
-
-    List<Map<String, Object>> items = filtered.subList(from, to).stream().map(r -> {
+    List<Map<String, Object>> items = pageResult.getContent().stream().map(r -> {
+      UserEntity author = userRepository.findById(r.getAuthorUserId()).orElse(null);
       Map<String, Object> item = new HashMap<>();
       item.put(ResponseKeys.REPORT_ID, r.getReportId());
-      item.put(ResponseKeys.MONTH, r.getMonth());
-      item.put(ResponseKeys.REPORTER_NAME, r.getReporterName());
-      item.put(ResponseKeys.REPORTER_ID, r.getReporterId());
-      item.put(ResponseKeys.AUTHOR_ROLE, r.getAuthorRole().name());
+      item.put(ResponseKeys.MONTH, r.getReportMonth());
+      item.put(ResponseKeys.REPORTER_NAME, author == null ? null : author.getUserName());
+      item.put(ResponseKeys.REPORTER_ID, author == null ? null : author.getEmployeeNo());
+      item.put(ResponseKeys.AUTHOR_ROLE, author == null ? null : author.getRoleCode());
       item.put(ResponseKeys.OFFICE_CODE, r.getOfficeCode());
       item.put(ResponseKeys.TEAM_CODE, r.getTeamCode());
-      item.put(ResponseKeys.FEEDBACK_REGISTERED, r.hasFeedback());
+      item.put(ResponseKeys.FEEDBACK_REGISTERED, STATUS_FEEDBACKED.equals(r.getStatus()));
       item.put(ResponseKeys.UPDATED_AT, r.getUpdatedAt().toString());
       return item;
     }).toList();
-
-    int totalPages = filtered.isEmpty() ? 0 : (int) Math.ceil((double) filtered.size() / size);
 
     // フロント仕様に合わせ、items と paging を同時に返す。
     return Map.of(
@@ -91,8 +109,8 @@ public class ReportService {
         ResponseKeys.PAGING, Map.of(
             ResponseKeys.PAGE, page,
             ResponseKeys.SIZE, size,
-            ResponseKeys.TOTAL_ELEMENTS, filtered.size(),
-            ResponseKeys.TOTAL_PAGES, totalPages));
+            ResponseKeys.TOTAL_ELEMENTS, pageResult.getTotalElements(),
+            ResponseKeys.TOTAL_PAGES, pageResult.getTotalPages()));
   }
 
   /**
@@ -106,29 +124,49 @@ public class ReportService {
    */
   public Map<String, Object> detail(AuthUser user, String reportId) {
     // 参照権限を含めて可視な月報のみ取得する。
-    ReportRecord report = getVisibleReport(user, reportId);
-    Map<String, Object> author = Map.of(
-        ResponseKeys.EMPLOYEE_NO, report.getReporterId(),
-        ResponseKeys.NAME, report.getReporterName(),
-        ResponseKeys.ROLE, report.getAuthorRole().name(),
-        ResponseKeys.OFFICE_CODE, report.getOfficeCode(),
-        ResponseKeys.TEAM_CODE, report.getTeamCode());
+    ReportEntity report = getVisibleReport(user, reportId);
+    UserEntity authorUser = userRepository.findById(report.getAuthorUserId()).orElse(null);
+    Map<String, Object> author = new HashMap<>();
+    author.put(ResponseKeys.EMPLOYEE_NO, authorUser == null ? null : authorUser.getEmployeeNo());
+    author.put(ResponseKeys.NAME, authorUser == null ? null : authorUser.getUserName());
+    author.put(ResponseKeys.ROLE, authorUser == null ? null : authorUser.getRoleCode());
+    author.put(ResponseKeys.OFFICE_CODE, report.getOfficeCode());
+    author.put(ResponseKeys.TEAM_CODE, report.getTeamCode());
 
+    ReportFeedbackEntity feedbackEntity = reportFeedbackRepository.findById(reportId).orElse(null);
     Map<String, Object> feedback = new HashMap<>();
-    feedback.put(ResponseKeys.FEEDBACK_COMMENT, report.getFeedbackComment());
-    feedback.put(ResponseKeys.RESPONDER_ROLE, report.getResponderRole());
-    feedback.put(ResponseKeys.RESPONDER_NAME, report.getResponderName());
-    feedback.put(ResponseKeys.RESPONDED_AT, report.getRespondedAt() == null ? null : report.getRespondedAt().toString());
+    if (feedbackEntity != null) {
+      UserEntity responder = userRepository.findById(feedbackEntity.getResponderUserId()).orElse(null);
+      feedback.put(ResponseKeys.FEEDBACK_COMMENT, feedbackEntity.getFeedbackComment());
+      feedback.put(ResponseKeys.RESPONDER_ROLE, responder == null ? null : responder.getRoleCode());
+      feedback.put(ResponseKeys.RESPONDER_NAME, responder == null ? null : responder.getUserName());
+      feedback.put(ResponseKeys.RESPONDED_AT, feedbackEntity.getRespondedAt().toString());
+    } else {
+      feedback.put(ResponseKeys.FEEDBACK_COMMENT, null);
+      feedback.put(ResponseKeys.RESPONDER_ROLE, null);
+      feedback.put(ResponseKeys.RESPONDER_NAME, null);
+      feedback.put(ResponseKeys.RESPONDED_AT, null);
+    }
+
+    ReportConditionEntity condition = reportConditionRepository.findById(reportId).orElseThrow();
+    Map<String, String> conditions = Map.of(
+        "physical", condition.getPhysical(),
+        "stress", condition.getStress(),
+        "relationships", condition.getRelationships(),
+        "worries", condition.getWorries(),
+        "fatigue", condition.getFatigue(),
+        "sleep", condition.getSleep(),
+        "motivation", condition.getMotivation());
 
     Map<String, Object> params = new HashMap<>();
     params.put(ResponseKeys.REPORT_ID, report.getReportId());
-    params.put(ResponseKeys.MONTH, report.getMonth());
+    params.put(ResponseKeys.MONTH, report.getReportMonth());
     params.put(ResponseKeys.SALES_INFO, report.getSalesInfo());
     params.put(ResponseKeys.NEXT_MONTH_OVERTIME_HOURS, report.getNextMonthOvertimeHours());
     params.put(ResponseKeys.NEXT_MONTH_OVERTIME_REASON, report.getNextMonthOvertimeReason());
     params.put(ResponseKeys.THIS_MONTH_OVERTIME_HOURS, report.getThisMonthOvertimeHours());
     params.put(ResponseKeys.THIS_MONTH_OVERTIME_REASON, report.getThisMonthOvertimeReason());
-    params.put(ResponseKeys.CONDITIONS, report.getConditions());
+    params.put(ResponseKeys.CONDITIONS, conditions);
     params.put(ResponseKeys.COMMENTS, report.getComments());
     params.put(ResponseKeys.AUTHOR, author);
     params.put(ResponseKeys.FEEDBACK, feedback);
@@ -153,28 +191,27 @@ public class ReportService {
     // 体調コンディションのキー/値を事前検証する。
     validateConditions(request.conditions());
 
-    boolean duplicated = dataStore.findAllReports().stream()
-        .filter(r -> !r.isDeleted())
-        .anyMatch(r -> r.getAuthorUserId().equals(user.userId()) && r.getMonth().equals(request.month()));
     // 同一ユーザー・同一月の重複投稿を防ぐ。
-    if (duplicated) {
+    if (reportRepository.existsByAuthorUserIdAndReportMonthAndDeleteFlagFalse(user.userId(), request.month())) {
       throw new BusinessException(ErrorCodes.REPORT_409, msg(MessageKeys.REPORT_DUPLICATE_MONTH));
     }
 
-    ReportRecord report = new ReportRecord();
-    report.setReportId(dataStore.newReportId());
-    applyEditableFields(report, request.month(), request.salesInfo(), request.nextMonthOvertimeHours(), request.nextMonthOvertimeReason(), request.thisMonthOvertimeHours(), request.thisMonthOvertimeReason(), request.conditions(), request.comments());
+    OffsetDateTime now = OffsetDateTime.now();
+    ReportEntity report = new ReportEntity();
+    report.setReportId(UlidGenerator.generate());
+    applyEditableFields(report, request.month(), request.salesInfo(), request.nextMonthOvertimeHours(), request.nextMonthOvertimeReason(), request.thisMonthOvertimeHours(), request.thisMonthOvertimeReason(), request.comments());
+    report.setStatus(STATUS_SUBMITTED);
     report.setAuthorUserId(user.userId());
-    report.setReporterId(user.employeeNo());
-    report.setReporterName(user.name());
-    report.setAuthorRole(user.role());
     report.setOfficeCode(user.officeCode());
     report.setTeamCode(user.teamCode());
-    report.setCreatedAt(OffsetDateTime.now());
-    report.setUpdatedAt(OffsetDateTime.now());
-    report.setDeleted(false);
-    // 永続化ストアへ保存する。
-    dataStore.saveReport(report);
+    report.setDeleteFlag(false);
+    report.setUpdatedAt(now);
+    report.setUpdatedBy(user.employeeNo());
+    report.setRegisteredAt(now);
+    report.setRegisteredBy(user.employeeNo());
+    reportRepository.save(report);
+
+    saveConditions(report.getReportId(), request.conditions(), user, now);
 
     return Map.of(ResponseKeys.REPORT_ID, report.getReportId());
   }
@@ -190,8 +227,7 @@ public class ReportService {
    */
   public Map<String, Object> update(AuthUser user, ReportUpdateRequest request) {
     validateConditions(request.conditions());
-    ReportRecord report = dataStore.findReportById(request.reportId())
-        .filter(r -> !r.isDeleted())
+    ReportEntity report = reportRepository.findByReportIdAndDeleteFlagFalse(request.reportId())
         .orElseThrow(() -> new BusinessException(ErrorCodes.REPORT_404, msg(MessageKeys.REPORT_NOT_FOUND)));
 
     // 作成者本人のみ更新を許可する。
@@ -199,9 +235,14 @@ public class ReportService {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.REPORT_NO_UPDATE_PERMISSION));
     }
 
-    applyEditableFields(report, request.month(), request.salesInfo(), request.nextMonthOvertimeHours(), request.nextMonthOvertimeReason(), request.thisMonthOvertimeHours(), request.thisMonthOvertimeReason(), request.conditions(), request.comments());
-    report.setUpdatedAt(OffsetDateTime.now());
-    dataStore.saveReport(report);
+    OffsetDateTime now = OffsetDateTime.now();
+    applyEditableFields(report, request.month(), request.salesInfo(), request.nextMonthOvertimeHours(), request.nextMonthOvertimeReason(), request.thisMonthOvertimeHours(), request.thisMonthOvertimeReason(), request.comments());
+    report.setUpdatedAt(now);
+    report.setUpdatedBy(user.employeeNo());
+    reportRepository.save(report);
+
+    saveConditions(report.getReportId(), request.conditions(), user, now);
+
     return Map.of(ResponseKeys.REPORT_ID, report.getReportId(), ResponseKeys.UPDATED, true);
   }
 
@@ -215,8 +256,7 @@ public class ReportService {
    * @return 削除結果
    */
   public Map<String, Object> delete(AuthUser user, String reportId) {
-    ReportRecord report = dataStore.findReportById(reportId)
-        .filter(r -> !r.isDeleted())
+    ReportEntity report = reportRepository.findByReportIdAndDeleteFlagFalse(reportId)
         .orElseThrow(() -> new BusinessException(ErrorCodes.REPORT_404, msg(MessageKeys.REPORT_NOT_FOUND)));
 
     boolean canDelete = report.getAuthorUserId().equals(user.userId()) || user.role() == UserRole.OM;
@@ -225,9 +265,10 @@ public class ReportService {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.REPORT_NO_DELETE_PERMISSION));
     }
 
-    report.setDeleted(true);
+    report.setDeleteFlag(true);
     report.setUpdatedAt(OffsetDateTime.now());
-    dataStore.saveReport(report);
+    report.setUpdatedBy(user.employeeNo());
+    reportRepository.save(report);
     return Map.of(ResponseKeys.REPORT_ID, report.getReportId(), ResponseKeys.DELETED, true);
   }
 
@@ -246,8 +287,7 @@ public class ReportService {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.REPORT_NO_FEEDBACK_PERMISSION));
     }
 
-    ReportRecord report = dataStore.findReportById(request.reportId())
-        .filter(r -> !r.isDeleted())
+    ReportEntity report = reportRepository.findByReportIdAndDeleteFlagFalse(request.reportId())
         .orElseThrow(() -> new BusinessException(ErrorCodes.REPORT_404, msg(MessageKeys.REPORT_NOT_FOUND)));
 
     // 自分自身の月報への回答は禁止。
@@ -256,26 +296,40 @@ public class ReportService {
     }
 
     // フィードバック期限チェック: 報告月の翌月 DEADLINE_DAY 日を過ぎた場合は不可。
-    LocalDate deadline = YearMonth.parse(report.getMonth())
+    LocalDate deadline = YearMonth.parse(report.getReportMonth())
         .plusMonths(1)
         .atDay(ValidationConstants.DEADLINE_DAY);
     if (LocalDate.now().isAfter(deadline)) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.REPORT_FEEDBACK_EXPIRED));
     }
 
-    report.setFeedbackComment(request.feedbackComment());
-    report.setResponderRole(user.role().name());
-    report.setResponderName(user.name());
-    report.setRespondedAt(OffsetDateTime.now());
-    report.setUpdatedAt(OffsetDateTime.now());
-    dataStore.saveReport(report);
+    OffsetDateTime now = OffsetDateTime.now();
+    ReportFeedbackEntity feedback = reportFeedbackRepository.findById(request.reportId()).orElseGet(ReportFeedbackEntity::new);
+    boolean isNew = feedback.getReportId() == null;
+    feedback.setReportId(request.reportId());
+    feedback.setFeedbackComment(request.feedbackComment());
+    feedback.setResponderUserId(user.userId());
+    feedback.setRespondedAt(now);
+    feedback.setUpdatedAt(now);
+    feedback.setUpdatedBy(user.employeeNo());
+    if (isNew) {
+      feedback.setRegisteredAt(now);
+      feedback.setRegisteredBy(user.employeeNo());
+    }
+    feedback.setDeleteFlag(false);
+    reportFeedbackRepository.save(feedback);
+
+    report.setStatus(STATUS_FEEDBACKED);
+    report.setUpdatedAt(now);
+    report.setUpdatedBy(user.employeeNo());
+    reportRepository.save(report);
 
     return Map.of(
         ResponseKeys.REPORT_ID, report.getReportId(),
         ResponseKeys.FEEDBACK_REGISTERED, true,
-        ResponseKeys.RESPONDER_ROLE, report.getResponderRole(),
-        ResponseKeys.RESPONDER_NAME, report.getResponderName(),
-        ResponseKeys.RESPONDED_AT, report.getRespondedAt().toString());
+        ResponseKeys.RESPONDER_ROLE, user.role().name(),
+        ResponseKeys.RESPONDER_NAME, user.name(),
+        ResponseKeys.RESPONDED_AT, now.toString());
   }
 
   /**
@@ -286,12 +340,9 @@ public class ReportService {
    * @param user 認証ユーザー
    * @return 参照可能な月報一覧
    */
-  public List<ReportRecord> scopedReports(AuthUser user) {
-    List<ReportRecord> records = new ArrayList<>(dataStore.findAllReports()).stream()
-        .filter(r -> !r.isDeleted())
-        .toList();
-
-    return records.stream().filter(r -> canView(user, r)).toList();
+  public List<ReportEntity> scopedReports(AuthUser user) {
+    var spec = ReportSpecifications.notDeleted().and(ReportSpecifications.visibleTo(user));
+    return reportRepository.findAll(spec);
   }
 
   /**
@@ -303,9 +354,8 @@ public class ReportService {
    * @param reportId 月報ID
    * @return 可視な月報
    */
-  private ReportRecord getVisibleReport(AuthUser user, String reportId) {
-    ReportRecord report = dataStore.findReportById(reportId)
-        .filter(r -> !r.isDeleted())
+  private ReportEntity getVisibleReport(AuthUser user, String reportId) {
+    ReportEntity report = reportRepository.findByReportIdAndDeleteFlagFalse(reportId)
         .orElseThrow(() -> new BusinessException(ErrorCodes.REPORT_404, msg(MessageKeys.REPORT_NOT_FOUND)));
     // 取得できても閲覧権限がなければ拒否する。
     if (!canView(user, report)) {
@@ -315,61 +365,33 @@ public class ReportService {
   }
 
   /**
-   * ロールと所属に基づいて閲覧可否を判定する。
-   * インプット: user 認証ユーザー、report 対象月報。
-   * アウトプット: 閲覧可能な場合 true。
+   * ロールと所属に基づいて閲覧可否を判定する（{@link ReportSpecifications#visibleTo} と同一の判定）。
    *
    * @param user 認証ユーザー
    * @param report 対象月報
    * @return 閲覧可否
    */
-  private boolean canView(AuthUser user, ReportRecord report) {
-    // NG はすべての月報を閲覧不可。
+  private boolean canView(AuthUser user, ReportEntity report) {
     if (user.role() == UserRole.NG) {
       return false;
     }
-    // SA/OM は全件参照可能（SA はフロントエンドで内容をマスク表示）。
     if (user.role() == UserRole.SA || user.role() == UserRole.OM) {
       return true;
     }
-    // SM は同一オフィスの全件参照可能。
     if (user.role() == UserRole.SM) {
       return report.getOfficeCode().equals(user.officeCode());
     }
-    // GL は同一オフィスまたは本人投稿のみ参照可能。
     if (user.role() == UserRole.GL) {
       return report.getAuthorUserId().equals(user.userId()) || report.getOfficeCode().equals(user.officeCode());
     }
-    // TL は同一チームまたは本人投稿のみ参照可能。
     if (user.role() == UserRole.TL) {
       return report.getAuthorUserId().equals(user.userId()) || report.getTeamCode().equals(user.teamCode());
     }
-    // TM/SP は本人投稿のみ参照可能。
     return report.getAuthorUserId().equals(user.userId());
   }
 
   /**
-   * 状態フィルタ条件を評価する。
-   * インプット: status 状態条件、report 対象月報。
-   * アウトプット: 条件一致時 true。
-   *
-   * @param status 状態条件
-   * @param report 対象月報
-   * @return 条件一致可否
-   */
-  private boolean statusFilter(String status, ReportRecord report) {
-    return switch (status) {
-      case "ALL", "SUBMITTED" -> true;
-      case "PENDING_FEEDBACK" -> !report.hasFeedback();
-      case "FEEDBACKED" -> report.hasFeedback();
-      default -> throw new BusinessException(ErrorCodes.VAL_001, msg(MessageKeys.REPORT_INVALID_STATUS));
-    };
-  }
-
-  /**
    * 編集可能項目を一括反映する。
-   * インプット: report 更新対象月報と編集対象の各入力値。
-   * アウトプット: report の編集可能項目が更新された状態。
    *
    * @param report 更新対象月報
    * @param month 対象月
@@ -378,27 +400,53 @@ public class ReportService {
    * @param nextMonthOvertimeReason 来月見込み残業理由
    * @param thisMonthOvertimeHours 今月実績残業時間
    * @param thisMonthOvertimeReason 今月実績残業理由
-   * @param conditions 体調コンディション
    * @param comments コメント
    */
   private void applyEditableFields(
-      ReportRecord report,
+      ReportEntity report,
       String month,
       String salesInfo,
       Integer nextMonthOvertimeHours,
       String nextMonthOvertimeReason,
       Integer thisMonthOvertimeHours,
       String thisMonthOvertimeReason,
-      Map<String, String> conditions,
       String comments) {
-    report.setMonth(month);
+    report.setReportMonth(month);
     report.setSalesInfo(salesInfo);
     report.setNextMonthOvertimeHours(nextMonthOvertimeHours);
     report.setNextMonthOvertimeReason(nextMonthOvertimeReason);
     report.setThisMonthOvertimeHours(thisMonthOvertimeHours);
     report.setThisMonthOvertimeReason(thisMonthOvertimeReason);
-    report.setConditions(new HashMap<>(conditions));
     report.setComments(comments);
+  }
+
+  /**
+   * 体調コンディションを作成または更新する（reports と 1:1）。
+   *
+   * @param reportId   月報ID
+   * @param conditions 体調コンディション
+   * @param user       操作ユーザー
+   * @param now        処理時刻
+   */
+  private void saveConditions(String reportId, Map<String, String> conditions, AuthUser user, OffsetDateTime now) {
+    ReportConditionEntity entity = reportConditionRepository.findById(reportId).orElseGet(ReportConditionEntity::new);
+    boolean isNew = entity.getReportId() == null;
+    entity.setReportId(reportId);
+    entity.setPhysical(conditions.get("physical"));
+    entity.setStress(conditions.get("stress"));
+    entity.setRelationships(conditions.get("relationships"));
+    entity.setWorries(conditions.get("worries"));
+    entity.setFatigue(conditions.get("fatigue"));
+    entity.setSleep(conditions.get("sleep"));
+    entity.setMotivation(conditions.get("motivation"));
+    entity.setDeleteFlag(false);
+    entity.setUpdatedAt(now);
+    entity.setUpdatedBy(user.employeeNo());
+    if (isNew) {
+      entity.setRegisteredAt(now);
+      entity.setRegisteredBy(user.employeeNo());
+    }
+    reportConditionRepository.save(entity);
   }
 
   /**

@@ -8,8 +8,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -18,9 +16,7 @@ import org.springframework.test.web.servlet.MvcResult;
  * GroupController の MockMvc 統合テスト（API-20〜22）。
  * 初期データ: GROUP_A（office=TOKYO, glUserId=EMP009）、GROUP_OSAKA_1（office=OSAKA, glUserId=EMP002）。
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class GroupControllerTest {
+class GroupControllerTest extends AbstractIntegrationTest {
 
   @Autowired
   MockMvc mockMvc;

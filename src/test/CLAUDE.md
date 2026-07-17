@@ -12,7 +12,7 @@
 
 - Controller: C0, C1ともに100%。
 - Service: C0 100%、C1 100%。ただし、お作法的に到達不可能な例外ケースは C1 免除可（例: `IllegalArgumentException` の発生パターンなど）。
-- Repository: C0 100%、C1 100%。ただし、InMemoryDataStore の単純な getter/setter は C1 免除可。
+- Repository: C0 100%、C1 100%。ただし、Spring Data JPA の単純な派生クエリメソッドは C1 免除可。
 - DTO: C0 100%。
 - Utils / Constants: C0 100%.
 
@@ -24,5 +24,5 @@
 
 ## テストデータ
 
-- InMemoryDataStore の初期データ前提を崩さない。
+- Testcontainers(MariaDB) 上に Flyway (`V1__init_schema.sql` / `V2__seed_data.sql`) が適用する初期データ前提を崩さない。
 - 追加データはテスト内で明示し、ケース間で状態依存を作らない。

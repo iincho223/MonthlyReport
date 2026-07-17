@@ -46,6 +46,22 @@
     return config;
   });
 
+  let refreshPromise = null;
+
+  // リフレッシュトークンでアクセストークンの再発行を試みる（API-02）。
+  async function tryRefreshToken() {
+    const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
+    if (!refreshToken) return false;
+    try {
+      const params = await apiClient.post("/auth/refresh", { refreshToken: refreshToken });
+      window.localStorage.setItem(AUTH_TOKEN_KEY, params.accessToken);
+      window.localStorage.setItem(REFRESH_TOKEN_KEY, params.refreshToken);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   apiClient.interceptors.response.use(
     function (response) {
       const data = response && response.data ? response.data : {};
@@ -54,8 +70,23 @@
       }
       return data.params || {};
     },
-    function (error) {
-      if (error && error.response && error.response.status === 401 && typeof sessionExpiredHandler === "function") {
+    async function (error) {
+      const original = error && error.config;
+      const isAuthEndpoint = original && String(original.url || "").indexOf("/auth/") !== -1;
+      if (error && error.response && error.response.status === 401 && original && !original._retried && !isAuthEndpoint) {
+        // 401 の場合、即ログアウトの前に一度だけリフレッシュを試行する。
+        original._retried = true;
+        if (!refreshPromise) {
+          refreshPromise = tryRefreshToken().finally(function () { refreshPromise = null; });
+        }
+        const refreshed = await refreshPromise;
+        if (refreshed) {
+          return apiClient(original);
+        }
+        if (typeof sessionExpiredHandler === "function") {
+          sessionExpiredHandler();
+        }
+      } else if (error && error.response && error.response.status === 401 && typeof sessionExpiredHandler === "function") {
         sessionExpiredHandler();
       }
       if (error && error.response && error.response.data && error.response.data.resultMsg) {
@@ -228,6 +259,10 @@
       description: masked ? maskText(item.description) : item.description,
       severity: item.severity,
       status: item.status,
+      dueDate: item.dueDate,
+      resolvedDate: item.resolvedDate,
+      assigneeUserId: item.assigneeUserId,
+      assigneeName: toMaskedName(item.assigneeName, masked),
       createdByName: toMaskedName(item.createdByName, masked),
       createdByRole: item.createdByRole,
       createdAt: base && base.createdAt ? base.createdAt : formatDateTime(item.updatedAt),
@@ -291,6 +326,33 @@
     },
     addEscalationLog: function (escalationId, logText) {
       return apiClient.post("/escalations/log/add", { escalationId: escalationId, logText: logText });
+    },
+    searchUsers: function (params) {
+      return apiClient.post("/users/search", { role: null, officeCode: null, page: 1, size: 100, ...params });
+    },
+    createUser: function (payload) {
+      return apiClient.post("/users/create", payload);
+    },
+    deleteUser: function (userId) {
+      return apiClient.post("/users/delete", { userId: userId });
+    },
+    searchGroups: function (params) {
+      return apiClient.post("/groups/search", { officeCode: null, groupName: null, page: 1, size: 100, ...params });
+    },
+    createGroup: function (payload) {
+      return apiClient.post("/groups/create", payload);
+    },
+    deleteGroup: function (groupCode) {
+      return apiClient.post("/groups/delete", { groupCode: groupCode });
+    },
+    searchTeams: function (params) {
+      return apiClient.post("/teams/search", { groupCode: null, teamName: null, page: 1, size: 100, ...params });
+    },
+    createTeam: function (payload) {
+      return apiClient.post("/teams/create", payload);
+    },
+    deleteTeam: function (teamCode) {
+      return apiClient.post("/teams/delete", { teamCode: teamCode });
     },
   };
 
@@ -375,8 +437,8 @@
   };
 
   const HeaderBar = {
-    props: ["userProfile", "isHighRank", "canEscalate"],
-    emits: ["logout", "open-escalation"],
+    props: ["userProfile", "isHighRank", "canEscalate", "canViewUserAdmin", "canViewOrgAdmin"],
+    emits: ["logout", "open-escalation", "open-user-admin", "open-org-admin"],
     template: `
       <header class="app-header">
         <div class="container header-inner">
@@ -392,6 +454,8 @@
               <div class="user-name">{{ userProfile?.name }} <span class="user-id">({{ userProfile?.employeeId }})</span></div>
               <div class="user-scope">{{ userProfile?.scopeLabel }} | {{ userProfile?.roleLabel }}</div>
             </div>
+            <button v-if="canViewUserAdmin" @click="$emit('open-user-admin')" class="icon-btn" title="ユーザー管理" aria-label="ユーザー管理"><i data-lucide="users" class="icon-sm"></i></button>
+            <button v-if="canViewOrgAdmin" @click="$emit('open-org-admin')" class="icon-btn" title="組織管理" aria-label="組織管理"><i data-lucide="building-2" class="icon-sm"></i></button>
             <button v-if="canEscalate" @click="$emit('open-escalation')" class="icon-btn esc-nav-btn" title="エスカレーション" aria-label="エスカレーション一覧"><i data-lucide="alert-triangle" class="icon-sm"></i></button>
             <button @click="$emit('logout')" class="icon-btn" aria-label="logout"><i data-lucide="log-out" class="icon-sm"></i></button>
           </div>
@@ -702,7 +766,7 @@
 
   // ===== エスカレーション: 起票・編集フォーム =====
   const EscalationFormView = {
-    props: ["editingEscalation"],
+    props: ["editingEscalation", "assignableUsers"],
     emits: ["save", "cancel"],
     setup: function (props, ctx) {
       const formData = reactive({
@@ -712,6 +776,14 @@
         description: "",
         severity: "MEDIUM",
         status: "PENDING",
+        dueDate: "",
+        resolvedDate: "",
+        assigneeUserId: null,
+      });
+
+      // 担当者は一度設定すると未設定への変更を禁止する（バックエンドの業務ルールと整合）。
+      const assigneeLocked = computed(function () {
+        return Boolean(props.editingEscalation && props.editingEscalation.assigneeUserId);
       });
 
       watch(
@@ -725,16 +797,34 @@
               description: esc.description || "",
               severity: esc.severity || "MEDIUM",
               status: esc.status || "PENDING",
+              dueDate: esc.dueDate || "",
+              resolvedDate: esc.resolvedDate || "",
+              assigneeUserId: esc.assigneeUserId || null,
             });
           } else {
-            Object.assign(formData, { title: "", targetEmployeeName: "", targetTeam: "", description: "", severity: "MEDIUM", status: "PENDING" });
+            Object.assign(formData, {
+              title: "", targetEmployeeName: "", targetTeam: "", description: "",
+              severity: "MEDIUM", status: "PENDING", dueDate: "", resolvedDate: "", assigneeUserId: null,
+            });
           }
         },
         { immediate: true },
       );
 
-      function save() { ctx.emit("save", { ...formData }); }
-      return { formData, save };
+      const canSave = computed(function () {
+        if (!formData.title.trim() || !formData.dueDate) return false;
+        if (formData.status === "RESOLVED" && !formData.resolvedDate) return false;
+        return true;
+      });
+
+      function save() {
+        ctx.emit("save", {
+          ...formData,
+          assigneeUserId: formData.assigneeUserId ? Number(formData.assigneeUserId) : null,
+          resolvedDate: formData.status === "RESOLVED" ? formData.resolvedDate : null,
+        });
+      }
+      return { formData, save, canSave, assigneeLocked };
     },
     template: `
       <section class="form-page container">
@@ -791,12 +881,33 @@
               </div>
             </div>
           </article>
+
+          <article class="section-card form-block">
+            <h3 class="block-title">期日・担当</h3>
+            <div class="two-col-grid">
+              <div>
+                <label class="field-label">対応期日 <span style="color:var(--danger)">*</span></label>
+                <input v-model="formData.dueDate" type="date" class="input-shell input-strong" />
+              </div>
+              <div v-if="formData.status === 'RESOLVED'">
+                <label class="field-label">完了期日 <span style="color:var(--danger)">*</span></label>
+                <input v-model="formData.resolvedDate" type="date" class="input-shell input-strong" />
+              </div>
+            </div>
+            <div style="margin-top:0.8rem">
+              <label class="field-label">対応担当者</label>
+              <select v-model="formData.assigneeUserId" class="input-shell input-strong">
+                <option v-if="!assigneeLocked" :value="null">未設定</option>
+                <option v-for="u in assignableUsers" :key="u.userId" :value="u.userId">{{ u.name }} ({{ u.employeeNo }})</option>
+              </select>
+            </div>
+          </article>
         </div>
 
         <div class="form-actions-fixed">
           <div class="form-actions-inner">
             <button @click="$emit('cancel')" class="action-btn action-secondary action-fill">キャンセル</button>
-            <button @click="save" :disabled="!formData.title.trim()" class="action-btn action-primary action-fill">
+            <button @click="save" :disabled="!canSave" class="action-btn action-primary action-fill">
               {{ editingEscalation ? '更新する' : '起票する' }}
             </button>
           </div>
@@ -808,11 +919,12 @@
   // ===== エスカレーション: 詳細 =====
   const EscalationDetailView = {
     props: ["escalation", "userProfile"],
-    emits: ["back", "edit", "add-log"],
+    emits: ["back", "edit", "add-log", "change-status"],
     setup: function (props, ctx) {
       const newLogText = ref("");
       const SEVERITY_LABELS = { HIGH: "高", MEDIUM: "中", LOW: "低" };
       const STATUS_LABELS = { PENDING: "未対応", ONGOING: "対応中", RESOLVED: "解決済み" };
+      const STATUS_OPTIONS = ["PENDING", "ONGOING", "RESOLVED"];
 
       const canEdit = computed(function () {
         if (!props.userProfile) return false;
@@ -825,7 +937,12 @@
         newLogText.value = "";
       }
 
-      return { newLogText, SEVERITY_LABELS, STATUS_LABELS, canEdit, submitLog };
+      function changeStatus(status) {
+        if (status === props.escalation.status) return;
+        ctx.emit("change-status", status);
+      }
+
+      return { newLogText, SEVERITY_LABELS, STATUS_LABELS, STATUS_OPTIONS, canEdit, submitLog, changeStatus };
     },
     template: `
       <section v-if="escalation" class="container detail-page">
@@ -845,9 +962,34 @@
             <h2 class="detail-title">{{ escalation.title }}</h2>
             <p class="detail-meta">起票: {{ escalation.createdByName }} ({{ escalation.createdByRole }}) / {{ escalation.createdAt }}</p>
 
+            <section v-if="canEdit" class="detail-section esc-status-actions">
+              <button
+                v-for="s in STATUS_OPTIONS"
+                :key="s"
+                @click="changeStatus(s)"
+                :disabled="s === escalation.status"
+                :class="'action-btn action-fill ' + (s === escalation.status ? 'action-primary' : 'action-secondary')"
+              >{{ STATUS_LABELS[s] }}</button>
+            </section>
+
             <section class="detail-section">
               <h3 class="detail-section-title">対象情報</h3>
               <p class="detail-paragraph">{{ escalation.targetEmployeeName }} — {{ escalation.targetTeam }}</p>
+            </section>
+
+            <section class="detail-section detail-overtime-grid">
+              <div class="inline-panel">
+                <div class="field-label">対応期日</div>
+                <div class="metric-value">{{ escalation.dueDate || '-' }}</div>
+              </div>
+              <div class="inline-panel">
+                <div class="field-label">完了期日</div>
+                <div class="metric-value">{{ escalation.resolvedDate || '-' }}</div>
+              </div>
+              <div class="inline-panel">
+                <div class="field-label">対応担当者</div>
+                <div class="metric-value">{{ escalation.assigneeName || '未設定' }}</div>
+              </div>
             </section>
 
             <section class="detail-section">
@@ -888,6 +1030,458 @@
     template: `<div v-if="notification" class="notification-toast"><i data-lucide="check-circle-2" class="icon-md icon-success"></i><span class="notification-text">{{ notification }}</span></div>`,
   };
 
+  // ===== ユーザー管理 (UI-06) =====
+  const AdminUsersView = {
+    props: ["users", "userProfile"],
+    emits: ["search", "new-user", "delete-user", "back"],
+    setup: function (props, ctx) {
+      const searchForm = reactive({ role: "", officeCode: "" });
+      const showOfficeFilter = computed(function () {
+        return props.userProfile && ["SA", "OM"].includes(props.userProfile.role);
+      });
+      function search() {
+        ctx.emit("search", { role: searchForm.role || null, officeCode: searchForm.officeCode || null });
+      }
+      return { searchForm, showOfficeFilter, search, roleLabel, officeLabel, teamLabel };
+    },
+    template: `
+      <main class="container page-stack">
+        <section class="page-head">
+          <div>
+            <button @click="$emit('back')" class="icon-btn icon-btn-light" style="margin-bottom:0.4rem"><i data-lucide="chevron-left" class="icon-md"></i></button>
+            <h2 class="page-title"><i data-lucide="users" class="icon-sm icon-accent"></i> ユーザー管理</h2>
+          </div>
+          <button @click="$emit('new-user')" class="action-btn action-primary"><i data-lucide="plus" class="icon-sm"></i> 新規登録</button>
+        </section>
+
+        <section class="section-card form-block">
+          <div class="two-col-grid">
+            <div>
+              <label class="field-label">ロール</label>
+              <select v-model="searchForm.role" class="input-shell">
+                <option value="">すべて</option>
+                <option v-for="r in ['NG','TM','TL','GL','OM','SP','SM','SA']" :key="r" :value="r">{{ roleLabel(r) }}</option>
+              </select>
+            </div>
+            <div v-if="showOfficeFilter">
+              <label class="field-label">営業所</label>
+              <select v-model="searchForm.officeCode" class="input-shell">
+                <option value="">すべて</option>
+                <option value="TOKYO">東京本社</option>
+                <option value="OSAKA">大阪支社</option>
+              </select>
+            </div>
+          </div>
+          <button @click="search" class="action-btn action-secondary" style="margin-top:0.8rem">検索</button>
+        </section>
+
+        <section v-if="users.length === 0" class="section-card empty-card">
+          <i data-lucide="users" class="icon-xl icon-muted"></i>
+          <h3 class="empty-title">ユーザーが見つかりません</h3>
+        </section>
+
+        <section v-else class="section-card admin-table-wrap">
+          <table class="admin-table">
+            <thead><tr><th>社員番号</th><th>氏名</th><th>ロール</th><th>営業所</th><th>チーム</th><th></th></tr></thead>
+            <tbody>
+              <tr v-for="u in users" :key="u.userId">
+                <td>{{ u.employeeNo }}</td>
+                <td>{{ u.name }}</td>
+                <td>{{ roleLabel(u.role) }}</td>
+                <td>{{ officeLabel(u.officeCode) }}</td>
+                <td>{{ teamLabel(u.teamCode) }}</td>
+                <td>
+                  <button v-if="u.userId !== userProfile.userId" @click="$emit('delete-user', u)" class="icon-btn icon-btn-light" aria-label="削除"><i data-lucide="trash-2" class="icon-sm"></i></button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </main>
+    `,
+  };
+
+  const AdminUserFormView = {
+    props: ["userProfile"],
+    emits: ["save", "cancel"],
+    setup: function (props, ctx) {
+      const formData = reactive({
+        employeeNo: "",
+        name: "",
+        role: "",
+        officeCode: props.userProfile ? props.userProfile.officeCode : "TOKYO",
+        teamCode: "",
+        password: "",
+      });
+      const teams = ref([]);
+
+      const availableRoles = computed(function () {
+        const role = props.userProfile ? props.userProfile.role : null;
+        if (role === "SA") return ["NG", "TM", "TL", "GL", "OM", "SP", "SM", "SA"];
+        if (role === "OM" || role === "GL") return ["NG", "TM"];
+        if (role === "SP" || role === "SM") return ["NG", "TM", "SP", "SM"];
+        return [];
+      });
+
+      // OM/GL/SP/SM は自営業所固定、SA のみ営業所を選択可能。
+      const officeLocked = computed(function () {
+        return props.userProfile && props.userProfile.role !== "SA";
+      });
+
+      const requiresTeam = computed(function () {
+        return formData.role === "NG" || formData.role === "TM";
+      });
+
+      onMounted(async function () {
+        try {
+          const params = await api.searchTeams({});
+          teams.value = params.teams || [];
+        } catch (_) {
+          teams.value = [];
+        }
+      });
+
+      const canSave = computed(function () {
+        if (!formData.employeeNo.trim() || !formData.name.trim() || !formData.role || !formData.officeCode || !formData.password) return false;
+        if (requiresTeam.value && !formData.teamCode) return false;
+        return true;
+      });
+
+      function save() {
+        ctx.emit("save", {
+          employeeNo: formData.employeeNo.trim().toUpperCase(),
+          name: formData.name,
+          role: formData.role,
+          officeCode: formData.officeCode,
+          teamCode: requiresTeam.value ? formData.teamCode : null,
+          password: formData.password,
+        });
+      }
+
+      return { formData, teams, availableRoles, officeLocked, requiresTeam, canSave, roleLabel, save };
+    },
+    template: `
+      <section class="form-page container">
+        <div class="form-head">
+          <button @click="$emit('cancel')" class="icon-btn icon-btn-light"><i data-lucide="chevron-left" class="icon-md"></i></button>
+          <h2 class="form-title">ユーザー登録</h2>
+        </div>
+        <div class="form-stack-blocks">
+          <article class="section-card form-block">
+            <div class="two-col-grid">
+              <div>
+                <label class="field-label">社員番号 <span style="color:var(--danger)">*</span></label>
+                <input v-model="formData.employeeNo" type="text" class="input-shell input-strong" placeholder="例: EMP011" />
+              </div>
+              <div>
+                <label class="field-label">氏名 <span style="color:var(--danger)">*</span></label>
+                <input v-model="formData.name" type="text" class="input-shell input-strong" />
+              </div>
+            </div>
+          </article>
+          <article class="section-card form-block">
+            <div class="two-col-grid">
+              <div>
+                <label class="field-label">ロール <span style="color:var(--danger)">*</span></label>
+                <select v-model="formData.role" class="input-shell input-strong">
+                  <option value="" disabled>選択してください</option>
+                  <option v-for="r in availableRoles" :key="r" :value="r">{{ roleLabel(r) }}</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label">営業所 <span style="color:var(--danger)">*</span></label>
+                <select v-model="formData.officeCode" class="input-shell input-strong" :disabled="officeLocked">
+                  <option value="TOKYO">東京本社</option>
+                  <option value="OSAKA">大阪支社</option>
+                </select>
+              </div>
+            </div>
+            <div v-if="requiresTeam" style="margin-top:0.8rem">
+              <label class="field-label">チーム <span style="color:var(--danger)">*</span></label>
+              <select v-model="formData.teamCode" class="input-shell input-strong">
+                <option value="" disabled>選択してください</option>
+                <option v-for="t in teams" :key="t.teamCode" :value="t.teamCode">{{ t.teamName }}</option>
+              </select>
+            </div>
+          </article>
+          <article class="section-card form-block">
+            <label class="field-label">初期パスワード <span style="color:var(--danger)">*</span></label>
+            <input v-model="formData.password" type="password" class="input-shell input-strong" />
+          </article>
+        </div>
+        <div class="form-actions-fixed">
+          <div class="form-actions-inner">
+            <button @click="$emit('cancel')" class="action-btn action-secondary action-fill">キャンセル</button>
+            <button @click="save" :disabled="!canSave" class="action-btn action-primary action-fill">登録する</button>
+          </div>
+        </div>
+      </section>
+    `,
+  };
+
+  // ===== 組織管理 (UI-07) =====
+  const AdminGroupsView = {
+    props: ["groups", "teams", "userProfile"],
+    emits: ["search-groups", "search-teams", "new-group", "new-team", "delete-group", "delete-team", "back"],
+    setup: function (props) {
+      const groupSearchForm = reactive({ groupName: "", officeCode: "" });
+      const teamSearchForm = reactive({ teamName: "", groupCode: "" });
+      const canManageGroup = computed(function () {
+        return props.userProfile && ["OM", "SA"].includes(props.userProfile.role);
+      });
+      const showOfficeFilter = computed(function () {
+        return props.userProfile && props.userProfile.role === "SA";
+      });
+      return { groupSearchForm, teamSearchForm, canManageGroup, showOfficeFilter };
+    },
+    template: `
+      <main class="container page-stack">
+        <section class="page-head">
+          <div>
+            <button @click="$emit('back')" class="icon-btn icon-btn-light" style="margin-bottom:0.4rem"><i data-lucide="chevron-left" class="icon-md"></i></button>
+            <h2 class="page-title"><i data-lucide="building-2" class="icon-sm icon-accent"></i> 組織管理</h2>
+          </div>
+        </section>
+
+        <section class="section-card form-block">
+          <h3 class="block-title">グループ</h3>
+          <div class="two-col-grid">
+            <div>
+              <label class="field-label">グループ名</label>
+              <input v-model="groupSearchForm.groupName" type="text" class="input-shell" />
+            </div>
+            <div v-if="showOfficeFilter">
+              <label class="field-label">営業所</label>
+              <select v-model="groupSearchForm.officeCode" class="input-shell">
+                <option value="">すべて</option>
+                <option value="TOKYO">東京本社</option>
+                <option value="OSAKA">大阪支社</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex; gap:0.6rem; margin-top:0.8rem">
+            <button @click="$emit('search-groups', { groupName: groupSearchForm.groupName || null, officeCode: groupSearchForm.officeCode || null })" class="action-btn action-secondary">検索</button>
+            <button v-if="canManageGroup" @click="$emit('new-group')" class="action-btn action-primary"><i data-lucide="plus" class="icon-sm"></i> グループ登録</button>
+          </div>
+
+          <div class="admin-table-wrap" style="margin-top:1rem">
+            <table class="admin-table">
+              <thead><tr><th>コード</th><th>グループ名</th><th>営業所</th><th>GL</th><th>チーム数</th><th>人数</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="g in groups" :key="g.groupCode">
+                  <td>{{ g.groupCode }}</td>
+                  <td>{{ g.groupName }}</td>
+                  <td>{{ g.officeCode }}</td>
+                  <td>{{ g.glUserName }}</td>
+                  <td>{{ g.teamCount }}</td>
+                  <td>{{ g.memberCount }}</td>
+                  <td><button v-if="canManageGroup" @click="$emit('delete-group', g)" class="icon-btn icon-btn-light" aria-label="削除"><i data-lucide="trash-2" class="icon-sm"></i></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section-card form-block">
+          <h3 class="block-title">チーム</h3>
+          <div class="two-col-grid">
+            <div>
+              <label class="field-label">チーム名</label>
+              <input v-model="teamSearchForm.teamName" type="text" class="input-shell" />
+            </div>
+            <div>
+              <label class="field-label">グループ</label>
+              <select v-model="teamSearchForm.groupCode" class="input-shell">
+                <option value="">すべて</option>
+                <option v-for="g in groups" :key="g.groupCode" :value="g.groupCode">{{ g.groupName }}</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex; gap:0.6rem; margin-top:0.8rem">
+            <button @click="$emit('search-teams', { teamName: teamSearchForm.teamName || null, groupCode: teamSearchForm.groupCode || null })" class="action-btn action-secondary">検索</button>
+            <button @click="$emit('new-team')" class="action-btn action-primary"><i data-lucide="plus" class="icon-sm"></i> チーム登録</button>
+          </div>
+
+          <div class="admin-table-wrap" style="margin-top:1rem">
+            <table class="admin-table">
+              <thead><tr><th>コード</th><th>チーム名</th><th>グループ</th><th>TL</th><th>人数</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="t in teams" :key="t.teamCode">
+                  <td>{{ t.teamCode }}</td>
+                  <td>{{ t.teamName }}</td>
+                  <td>{{ t.groupName }}</td>
+                  <td>{{ t.tlUserName }}</td>
+                  <td>{{ t.memberCount }}</td>
+                  <td><button @click="$emit('delete-team', t)" class="icon-btn icon-btn-light" aria-label="削除"><i data-lucide="trash-2" class="icon-sm"></i></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    `,
+  };
+
+  const AdminOfficeFormView = {
+    props: ["userProfile"],
+    emits: ["save", "cancel"],
+    setup: function (props, ctx) {
+      const formData = reactive({
+        groupCode: "",
+        groupName: "",
+        officeCode: props.userProfile ? props.userProfile.officeCode : "TOKYO",
+        glUserId: "",
+      });
+      const candidates = ref([]);
+      const officeLocked = computed(function () {
+        return props.userProfile && props.userProfile.role !== "SA";
+      });
+
+      onMounted(async function () {
+        try {
+          const params = await api.searchUsers({});
+          candidates.value = params.items || [];
+        } catch (_) {
+          candidates.value = [];
+        }
+      });
+
+      const canSave = computed(function () {
+        return Boolean(formData.groupCode.trim() && formData.groupName.trim() && formData.officeCode && formData.glUserId);
+      });
+
+      function save() {
+        ctx.emit("save", {
+          groupCode: formData.groupCode.trim(),
+          groupName: formData.groupName,
+          officeCode: formData.officeCode,
+          glUserId: Number(formData.glUserId),
+        });
+      }
+      return { formData, candidates, officeLocked, canSave, save };
+    },
+    template: `
+      <section class="form-page container">
+        <div class="form-head">
+          <button @click="$emit('cancel')" class="icon-btn icon-btn-light"><i data-lucide="chevron-left" class="icon-md"></i></button>
+          <h2 class="form-title">グループ登録</h2>
+        </div>
+        <div class="form-stack-blocks">
+          <article class="section-card form-block">
+            <div class="two-col-grid">
+              <div>
+                <label class="field-label">グループコード <span style="color:var(--danger)">*</span></label>
+                <input v-model="formData.groupCode" type="text" class="input-shell input-strong" placeholder="例: GROUP_B" />
+              </div>
+              <div>
+                <label class="field-label">グループ名 <span style="color:var(--danger)">*</span></label>
+                <input v-model="formData.groupName" type="text" class="input-shell input-strong" />
+              </div>
+            </div>
+            <div class="two-col-grid" style="margin-top:0.8rem">
+              <div>
+                <label class="field-label">営業所 <span style="color:var(--danger)">*</span></label>
+                <select v-model="formData.officeCode" class="input-shell input-strong" :disabled="officeLocked">
+                  <option value="TOKYO">東京本社</option>
+                  <option value="OSAKA">大阪支社</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label">GLユーザー <span style="color:var(--danger)">*</span></label>
+                <select v-model="formData.glUserId" class="input-shell input-strong">
+                  <option value="" disabled>選択してください</option>
+                  <option v-for="u in candidates" :key="u.userId" :value="u.userId">{{ u.name }} ({{ u.employeeNo }})</option>
+                </select>
+              </div>
+            </div>
+          </article>
+        </div>
+        <div class="form-actions-fixed">
+          <div class="form-actions-inner">
+            <button @click="$emit('cancel')" class="action-btn action-secondary action-fill">キャンセル</button>
+            <button @click="save" :disabled="!canSave" class="action-btn action-primary action-fill">登録する</button>
+          </div>
+        </div>
+      </section>
+    `,
+  };
+
+  const AdminTeamFormView = {
+    props: ["groups"],
+    emits: ["save", "cancel"],
+    setup: function (props, ctx) {
+      const formData = reactive({ teamCode: "", teamName: "", groupCode: "", tlUserId: "" });
+      const candidates = ref([]);
+
+      onMounted(async function () {
+        try {
+          const params = await api.searchUsers({});
+          candidates.value = params.items || [];
+        } catch (_) {
+          candidates.value = [];
+        }
+      });
+
+      const canSave = computed(function () {
+        return Boolean(formData.teamCode.trim() && formData.teamName.trim() && formData.groupCode && formData.tlUserId);
+      });
+
+      function save() {
+        ctx.emit("save", {
+          teamCode: formData.teamCode.trim(),
+          teamName: formData.teamName,
+          groupCode: formData.groupCode,
+          tlUserId: Number(formData.tlUserId),
+        });
+      }
+      return { formData, candidates, canSave, save };
+    },
+    template: `
+      <section class="form-page container">
+        <div class="form-head">
+          <button @click="$emit('cancel')" class="icon-btn icon-btn-light"><i data-lucide="chevron-left" class="icon-md"></i></button>
+          <h2 class="form-title">チーム登録</h2>
+        </div>
+        <div class="form-stack-blocks">
+          <article class="section-card form-block">
+            <div class="two-col-grid">
+              <div>
+                <label class="field-label">チームコード <span style="color:var(--danger)">*</span></label>
+                <input v-model="formData.teamCode" type="text" class="input-shell input-strong" placeholder="例: TEAM_B" />
+              </div>
+              <div>
+                <label class="field-label">チーム名 <span style="color:var(--danger)">*</span></label>
+                <input v-model="formData.teamName" type="text" class="input-shell input-strong" />
+              </div>
+            </div>
+            <div class="two-col-grid" style="margin-top:0.8rem">
+              <div>
+                <label class="field-label">グループ <span style="color:var(--danger)">*</span></label>
+                <select v-model="formData.groupCode" class="input-shell input-strong">
+                  <option value="" disabled>選択してください</option>
+                  <option v-for="g in groups" :key="g.groupCode" :value="g.groupCode">{{ g.groupName }}</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label">TLユーザー <span style="color:var(--danger)">*</span></label>
+                <select v-model="formData.tlUserId" class="input-shell input-strong">
+                  <option value="" disabled>選択してください</option>
+                  <option v-for="u in candidates" :key="u.userId" :value="u.userId">{{ u.name }} ({{ u.employeeNo }})</option>
+                </select>
+              </div>
+            </div>
+          </article>
+        </div>
+        <div class="form-actions-fixed">
+          <div class="form-actions-inner">
+            <button @click="$emit('cancel')" class="action-btn action-secondary action-fill">キャンセル</button>
+            <button @click="save" :disabled="!canSave" class="action-btn action-primary action-fill">登録する</button>
+          </div>
+        </div>
+      </section>
+    `,
+  };
+
   const App = {
     components: {
       LoginView,
@@ -898,6 +1492,11 @@
       EscalationListView,
       EscalationFormView,
       EscalationDetailView,
+      AdminUsersView,
+      AdminUserFormView,
+      AdminGroupsView,
+      AdminOfficeFormView,
+      AdminTeamFormView,
       NotificationToast,
     },
     setup: function () {
@@ -910,6 +1509,13 @@
       const notification = ref(null);
       const escalations = ref([]);
       const currentEscalation = ref(null);
+      const assignableUsers = ref([]);
+      const adminUsers = ref([]);
+      const adminGroups = ref([]);
+      const adminTeams = ref([]);
+      const editingAdminUser = ref(null);
+      const editingAdminGroup = ref(null);
+      const editingAdminTeam = ref(null);
       const dashboardSummary = ref({
         totalReports: 0,
         pendingFeedbackCount: 0,
@@ -937,6 +1543,13 @@
         escalations.value = [];
         currentReport.value = null;
         currentEscalation.value = null;
+        assignableUsers.value = [];
+        adminUsers.value = [];
+        adminGroups.value = [];
+        adminTeams.value = [];
+        editingAdminUser.value = null;
+        editingAdminGroup.value = null;
+        editingAdminTeam.value = null;
         dashboardSummary.value = {
           totalReports: 0,
           pendingFeedbackCount: 0,
@@ -1135,8 +1748,18 @@
         }
       }
 
-      function openEscalationForm(esc) {
+      async function loadAssignableUsers() {
+        try {
+          const params = await api.searchUsers({});
+          assignableUsers.value = params.items || [];
+        } catch (_) {
+          assignableUsers.value = [];
+        }
+      }
+
+      async function openEscalationForm(esc) {
         currentEscalation.value = esc || null;
+        await loadAssignableUsers();
         view.value = "escalation-form";
       }
 
@@ -1176,6 +1799,196 @@
           showNotification("対応ログを追記しました");
         } catch (error) {
           showNotification(error.message || "対応ログの追加に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
+      }
+
+      async function changeEscalationStatus(status) {
+        if (!currentEscalation.value) return;
+        // 完了期日の入力が必須になるため、解決済みへの変更は編集フォームへ誘導する。
+        if (status === "RESOLVED") {
+          await openEscalationForm(currentEscalation.value);
+          return;
+        }
+        loading.value = true;
+        try {
+          await api.updateEscalation({
+            escalationId: currentEscalation.value.escalationId,
+            title: currentEscalation.value.title,
+            targetEmployeeName: currentEscalation.value.targetEmployeeName,
+            targetTeam: currentEscalation.value.targetTeam,
+            description: currentEscalation.value.description,
+            severity: currentEscalation.value.severity,
+            status: status,
+            dueDate: currentEscalation.value.dueDate,
+            resolvedDate: null,
+            assigneeUserId: currentEscalation.value.assigneeUserId,
+          });
+          currentEscalation.value = mapEscalationDetail(
+            await api.escalationDetail(currentEscalation.value.escalationId),
+            currentEscalation.value,
+            isMaskedRole(userProfile.value.role)
+          );
+          await loadEscalations();
+          showNotification("ステータスを更新しました");
+        } catch (error) {
+          showNotification(error.message || "ステータスの更新に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
+      }
+
+      // ===== ユーザー管理 (UI-06) =====
+      function canManageUsers() {
+        return userProfile.value && ["GL", "OM", "SP", "SM", "SA"].includes(userProfile.value.role);
+      }
+
+      async function loadAdminUsers(filters) {
+        if (!canManageUsers()) return;
+        loading.value = true;
+        try {
+          const params = await api.searchUsers(filters || {});
+          adminUsers.value = params.items || [];
+        } catch (error) {
+          showNotification(error.message || "ユーザー一覧の取得に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
+      }
+
+      function openAdminUsers() {
+        if (!canManageUsers()) { view.value = "list"; return; }
+        view.value = "admin-users";
+        loadAdminUsers();
+      }
+
+      function openAdminUserForm() {
+        editingAdminUser.value = null;
+        view.value = "admin-user-form";
+      }
+
+      async function saveAdminUser(formData) {
+        loading.value = true;
+        try {
+          await api.createUser(formData);
+          showNotification("ユーザーを登録しました");
+          view.value = "admin-users";
+          await loadAdminUsers();
+        } catch (error) {
+          showNotification(error.message || "ユーザーの登録に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
+      }
+
+      async function deleteAdminUser(targetUser) {
+        if (!confirm("「" + targetUser.name + "」を削除しますか？")) return;
+        loading.value = true;
+        try {
+          await api.deleteUser(targetUser.userId);
+          showNotification("ユーザーを削除しました");
+          await loadAdminUsers();
+        } catch (error) {
+          showNotification(error.message || "ユーザーの削除に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
+      }
+
+      // ===== 組織管理 (UI-07) =====
+      function canManageOrg() {
+        return userProfile.value && ["GL", "OM", "SA"].includes(userProfile.value.role);
+      }
+
+      async function loadAdminGroups(filters) {
+        if (!canManageOrg()) return;
+        const params = await api.searchGroups(filters || {});
+        adminGroups.value = params.groups || [];
+      }
+
+      async function loadAdminTeams(filters) {
+        if (!canManageOrg()) return;
+        const params = await api.searchTeams(filters || {});
+        adminTeams.value = params.teams || [];
+      }
+
+      function openAdminOrg() {
+        if (!canManageOrg()) { view.value = "list"; return; }
+        view.value = "admin-groups";
+        loading.value = true;
+        Promise.all([loadAdminGroups(), loadAdminTeams()])
+          .catch(function (error) { showNotification(error.message || "組織情報の取得に失敗しました"); })
+          .finally(function () { loading.value = false; refreshIcons(); });
+      }
+
+      function openAdminGroupForm() {
+        view.value = "admin-office-form";
+      }
+
+      function openAdminTeamForm() {
+        view.value = "admin-team-form";
+      }
+
+      async function saveAdminGroup(formData) {
+        loading.value = true;
+        try {
+          await api.createGroup(formData);
+          showNotification("グループを登録しました");
+          view.value = "admin-groups";
+          await loadAdminGroups();
+        } catch (error) {
+          showNotification(error.message || "グループの登録に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
+      }
+
+      async function deleteAdminGroup(group) {
+        if (!confirm("「" + group.groupName + "」を削除しますか？")) return;
+        loading.value = true;
+        try {
+          await api.deleteGroup(group.groupCode);
+          showNotification("グループを削除しました");
+          await loadAdminGroups();
+        } catch (error) {
+          showNotification(error.message || "グループの削除に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
+      }
+
+      async function saveAdminTeam(formData) {
+        loading.value = true;
+        try {
+          await api.createTeam(formData);
+          showNotification("チームを登録しました");
+          view.value = "admin-groups";
+          await loadAdminTeams();
+        } catch (error) {
+          showNotification(error.message || "チームの登録に失敗しました");
+        } finally {
+          loading.value = false;
+          refreshIcons();
+        }
+      }
+
+      async function deleteAdminTeam(team) {
+        if (!confirm("「" + team.teamName + "」を削除しますか？")) return;
+        loading.value = true;
+        try {
+          await api.deleteTeam(team.teamCode);
+          showNotification("チームを削除しました");
+          await loadAdminTeams();
+        } catch (error) {
+          showNotification(error.message || "チームの削除に失敗しました");
         } finally {
           loading.value = false;
           refreshIcons();
@@ -1222,6 +2035,14 @@
         return userProfile.value && isEscalationRole(userProfile.value.role);
       });
 
+      const canViewUserAdmin = computed(function () {
+        return userProfile.value && ["GL", "OM", "SP", "SM", "SA"].includes(userProfile.value.role);
+      });
+
+      const canViewOrgAdmin = computed(function () {
+        return userProfile.value && ["GL", "OM", "SA"].includes(userProfile.value.role);
+      });
+
       const daysUntilDeadline = computed(function () {
         const today = new Date();
         const deadline = new Date(today.getFullYear(), today.getMonth(), DEADLINE_DAY);
@@ -1255,6 +2076,8 @@
         stats,
         isHighRank,
         canEscalate,
+        canViewUserAdmin,
+        canViewOrgAdmin,
         currentMonthStr,
         daysUntilDeadline,
         isSelfSubmitted,
@@ -1262,6 +2085,13 @@
         submissionRate,
         escalations,
         currentEscalation,
+        assignableUsers,
+        adminUsers,
+        adminGroups,
+        adminTeams,
+        editingAdminUser,
+        editingAdminGroup,
+        editingAdminTeam,
         DEADLINE_DAY,
         ROLES,
         handleLogin,
@@ -1276,6 +2106,21 @@
         openEscalationForm,
         saveEscalation,
         addEscalationLog,
+        changeEscalationStatus,
+        openAdminUsers,
+        openAdminUserForm,
+        loadAdminUsers,
+        saveAdminUser,
+        deleteAdminUser,
+        openAdminOrg,
+        openAdminGroupForm,
+        openAdminTeamForm,
+        loadAdminGroups,
+        loadAdminTeams,
+        saveAdminGroup,
+        deleteAdminGroup,
+        saveAdminTeam,
+        deleteAdminTeam,
       };
     },
     template: `
@@ -1288,7 +2133,17 @@
         <LoginView v-else-if="!userProfile" :loading="loading" @login="handleLogin" />
 
         <div v-else>
-          <HeaderBar :user-profile="userProfile" :is-high-rank="isHighRank" :can-escalate="canEscalate" @logout="handleLogout" @open-escalation="openEscalationList" />
+          <HeaderBar
+            :user-profile="userProfile"
+            :is-high-rank="isHighRank"
+            :can-escalate="canEscalate"
+            :can-view-user-admin="canViewUserAdmin"
+            :can-view-org-admin="canViewOrgAdmin"
+            @logout="handleLogout"
+            @open-escalation="openEscalationList"
+            @open-user-admin="openAdminUsers"
+            @open-org-admin="openAdminOrg"
+          />
 
           <!-- 提出期限バナー -->
           <div class="deadline-banner">
@@ -1353,6 +2208,7 @@
           <EscalationFormView
             v-if="view === 'escalation-form'"
             :editing-escalation="currentEscalation"
+            :assignable-users="assignableUsers"
             @save="saveEscalation"
             @cancel="view = 'escalation-list'"
           />
@@ -1364,6 +2220,52 @@
             @back="view = 'escalation-list'"
             @edit="openEscalationForm(currentEscalation)"
             @add-log="addEscalationLog"
+            @change-status="changeEscalationStatus"
+          />
+
+          <AdminUsersView
+            v-if="view === 'admin-users'"
+            :users="adminUsers"
+            :user-profile="userProfile"
+            @search="loadAdminUsers"
+            @new-user="openAdminUserForm"
+            @delete-user="deleteAdminUser"
+            @back="view = 'list'"
+          />
+
+          <AdminUserFormView
+            v-if="view === 'admin-user-form'"
+            :user-profile="userProfile"
+            @save="saveAdminUser"
+            @cancel="view = 'admin-users'"
+          />
+
+          <AdminGroupsView
+            v-if="view === 'admin-groups'"
+            :groups="adminGroups"
+            :teams="adminTeams"
+            :user-profile="userProfile"
+            @search-groups="loadAdminGroups"
+            @search-teams="loadAdminTeams"
+            @new-group="openAdminGroupForm"
+            @new-team="openAdminTeamForm"
+            @delete-group="deleteAdminGroup"
+            @delete-team="deleteAdminTeam"
+            @back="view = 'list'"
+          />
+
+          <AdminOfficeFormView
+            v-if="view === 'admin-office-form'"
+            :user-profile="userProfile"
+            @save="saveAdminGroup"
+            @cancel="view = 'admin-groups'"
+          />
+
+          <AdminTeamFormView
+            v-if="view === 'admin-team-form'"
+            :groups="adminGroups"
+            @save="saveAdminTeam"
+            @cancel="view = 'admin-groups'"
           />
 
           <NotificationToast :notification="notification" />

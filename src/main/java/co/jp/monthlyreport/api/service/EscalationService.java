@@ -5,25 +5,29 @@ import co.jp.monthlyreport.api.common.BusinessException;
 import co.jp.monthlyreport.api.common.ErrorCodes;
 import co.jp.monthlyreport.api.common.MessageKeys;
 import co.jp.monthlyreport.api.common.ResponseKeys;
+import co.jp.monthlyreport.api.common.UlidGenerator;
 import co.jp.monthlyreport.api.dto.request.EscalationCreateRequest;
 import co.jp.monthlyreport.api.dto.request.EscalationLogAddRequest;
 import co.jp.monthlyreport.api.dto.request.EscalationSearchRequest;
 import co.jp.monthlyreport.api.dto.request.EscalationUpdateRequest;
-import co.jp.monthlyreport.api.model.EscalationLogRecord;
-import co.jp.monthlyreport.api.model.EscalationRecord;
-import co.jp.monthlyreport.api.model.UserAccount;
+import co.jp.monthlyreport.api.entity.EscalationEntity;
+import co.jp.monthlyreport.api.entity.EscalationLogEntity;
 import co.jp.monthlyreport.api.model.UserRole;
-import co.jp.monthlyreport.api.repository.InMemoryDataStore;
+import co.jp.monthlyreport.api.repository.EscalationLogRepository;
+import co.jp.monthlyreport.api.repository.EscalationRepository;
+import co.jp.monthlyreport.api.repository.EscalationSpecifications;
+import co.jp.monthlyreport.api.repository.UserRepository;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.springframework.context.MessageSource;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -37,11 +41,16 @@ public class EscalationService {
   private static final Set<String> VALID_SEVERITIES = Set.of("LOW", "MEDIUM", "HIGH");
   private static final Set<String> VALID_STATUSES = Set.of("PENDING", "ONGOING", "RESOLVED");
 
-  private final InMemoryDataStore dataStore;
+  private final EscalationRepository escalationRepository;
+  private final EscalationLogRepository escalationLogRepository;
+  private final UserRepository userRepository;
   private final MessageSource messageSource;
 
-  public EscalationService(InMemoryDataStore dataStore, MessageSource messageSource) {
-    this.dataStore = dataStore;
+  public EscalationService(EscalationRepository escalationRepository, EscalationLogRepository escalationLogRepository,
+      UserRepository userRepository, MessageSource messageSource) {
+    this.escalationRepository = escalationRepository;
+    this.escalationLogRepository = escalationLogRepository;
+    this.userRepository = userRepository;
     this.messageSource = messageSource;
   }
 
@@ -61,16 +70,11 @@ public class EscalationService {
     int size = request.size() == null ? 20 : request.size();
     String status = request.status() == null || request.status().isBlank() ? "ALL" : request.status().toUpperCase(Locale.ROOT);
 
-    List<EscalationRecord> filtered = scopedEscalations(user).stream()
-        .filter(e -> "ALL".equals(status) || status.equals(e.getStatus()))
-        .sorted(Comparator.comparing(EscalationRecord::getUpdatedAt).reversed())
-        .collect(Collectors.toList());
+    var spec = EscalationSpecifications.visibleTo(user).and(EscalationSpecifications.status(status));
+    Sort sort = Sort.by(Sort.Direction.DESC, "updatedAt");
+    Page<EscalationEntity> pageResult = escalationRepository.findAll(spec, PageRequest.of(page - 1, size, sort));
 
-    int from = Math.min((page - 1) * size, filtered.size());
-    int to = Math.min(from + size, filtered.size());
-    int totalPages = filtered.isEmpty() ? 0 : (int) Math.ceil((double) filtered.size() / size);
-
-    List<Map<String, Object>> items = filtered.subList(from, to).stream().map(e -> {
+    List<Map<String, Object>> items = pageResult.getContent().stream().map(e -> {
       Map<String, Object> item = new HashMap<>();
       item.put(ResponseKeys.ESCALATION_ID, e.getEscalationId());
       item.put(ResponseKeys.ESC_TITLE, e.getTitle());
@@ -78,7 +82,7 @@ public class EscalationService {
       item.put(ResponseKeys.TARGET_TEAM, e.getTargetTeam());
       item.put(ResponseKeys.SEVERITY, e.getSeverity());
       item.put(ResponseKeys.STATUS, e.getStatus());
-      item.put(ResponseKeys.DUE_DATE, e.getDueDate());
+      item.put(ResponseKeys.DUE_DATE, e.getDueDate().toString());
       item.put(ResponseKeys.CREATED_BY_NAME, e.getCreatedByName());
       item.put(ResponseKeys.UPDATED_AT, e.getUpdatedAt().toString());
       return item;
@@ -89,8 +93,8 @@ public class EscalationService {
         ResponseKeys.PAGING, Map.of(
             ResponseKeys.PAGE, page,
             ResponseKeys.SIZE, size,
-            ResponseKeys.TOTAL_ELEMENTS, filtered.size(),
-            ResponseKeys.TOTAL_PAGES, totalPages));
+            ResponseKeys.TOTAL_ELEMENTS, pageResult.getTotalElements(),
+            ResponseKeys.TOTAL_PAGES, pageResult.getTotalPages()));
   }
 
   /**
@@ -104,10 +108,9 @@ public class EscalationService {
    */
   public Map<String, Object> detail(AuthUser user, String escalationId) {
     requireEscalationAccess(user);
-    EscalationRecord esc = getVisibleEscalation(user, escalationId);
+    EscalationEntity esc = getVisibleEscalation(user, escalationId);
 
-    List<Map<String, Object>> history = esc.getLogs().stream()
-        .sorted(Comparator.comparing(EscalationLogRecord::getCreatedAt))
+    List<Map<String, Object>> history = escalationLogRepository.findByEscalationIdOrderByCreatedAtAsc(escalationId).stream()
         .map(log -> {
           Map<String, Object> entry = new HashMap<>();
           entry.put(ResponseKeys.LOG_ID, log.getLogId());
@@ -125,8 +128,8 @@ public class EscalationService {
     params.put(ResponseKeys.DESCRIPTION, esc.getDescription());
     params.put(ResponseKeys.SEVERITY, esc.getSeverity());
     params.put(ResponseKeys.STATUS, esc.getStatus());
-    params.put(ResponseKeys.DUE_DATE, esc.getDueDate());
-    params.put(ResponseKeys.RESOLVED_DATE, esc.getResolvedDate());
+    params.put(ResponseKeys.DUE_DATE, esc.getDueDate().toString());
+    params.put(ResponseKeys.RESOLVED_DATE, esc.getResolvedDate() == null ? null : esc.getResolvedDate().toString());
     params.put(ResponseKeys.CREATED_BY_NAME, esc.getCreatedByName());
     params.put(ResponseKeys.CREATED_BY_ROLE, esc.getCreatedByRole());
     params.put(ResponseKeys.ASSIGNEE_USER_ID, esc.getAssigneeUserId());
@@ -148,8 +151,8 @@ public class EscalationService {
     if (assigneeUserId == null) {
       return null;
     }
-    return dataStore.findUserById(assigneeUserId)
-        .map(UserAccount::getName)
+    return userRepository.findByUserIdAndDeleteFlagFalse(assigneeUserId)
+        .map(u -> u.getUserName())
         .orElse(null);
   }
 
@@ -172,15 +175,16 @@ public class EscalationService {
         ? "PENDING" : request.status().toUpperCase(Locale.ROOT);
     validateStatus(initialStatus);
 
-    EscalationRecord esc = new EscalationRecord();
-    esc.setEscalationId(dataStore.newEscalationId());
+    OffsetDateTime now = OffsetDateTime.now();
+    EscalationEntity esc = new EscalationEntity();
+    esc.setEscalationId(newEscalationId());
     esc.setTitle(request.title());
     esc.setTargetEmployeeName(request.targetEmployeeName());
     esc.setTargetTeam(request.targetTeam());
     esc.setDescription(request.description());
     esc.setSeverity(request.severity().toUpperCase(Locale.ROOT));
     esc.setStatus(initialStatus);
-    esc.setDueDate(request.dueDate());
+    esc.setDueDate(LocalDate.parse(request.dueDate()));
     esc.setResolvedDate(null);
     esc.setCreatedBy(user.userId());
     esc.setCreatedByName(user.name());
@@ -188,9 +192,12 @@ public class EscalationService {
     esc.setAssigneeUserId(request.assigneeUserId());
     esc.setOfficeCode(user.officeCode());
     esc.setTeamCode(user.teamCode());
-    esc.setCreatedAt(OffsetDateTime.now());
-    esc.setUpdatedAt(OffsetDateTime.now());
-    dataStore.saveEscalation(esc);
+    esc.setDeleteFlag(false);
+    esc.setUpdatedAt(now);
+    esc.setUpdatedBy(user.employeeNo());
+    esc.setRegisteredAt(now);
+    esc.setRegisteredBy(user.employeeNo());
+    escalationRepository.save(esc);
 
     return Map.of(ResponseKeys.ESCALATION_ID, esc.getEscalationId());
   }
@@ -206,7 +213,7 @@ public class EscalationService {
    */
   public Map<String, Object> update(AuthUser user, EscalationUpdateRequest request) {
     requireEscalationAccess(user);
-    EscalationRecord esc = getVisibleEscalation(user, request.escalationId());
+    EscalationEntity esc = getVisibleEscalation(user, request.escalationId());
 
     // 更新権限を確認する（起票者またはスコープ内管理ロール）。
     if (!canUpdate(user, esc)) {
@@ -230,11 +237,12 @@ public class EscalationService {
     esc.setDescription(request.description());
     esc.setSeverity(request.severity().toUpperCase(Locale.ROOT));
     esc.setStatus(status);
-    esc.setDueDate(request.dueDate());
-    esc.setResolvedDate("RESOLVED".equals(status) ? request.resolvedDate() : null);
+    esc.setDueDate(LocalDate.parse(request.dueDate()));
+    esc.setResolvedDate("RESOLVED".equals(status) ? LocalDate.parse(request.resolvedDate()) : null);
     esc.setAssigneeUserId(request.assigneeUserId());
     esc.setUpdatedAt(OffsetDateTime.now());
-    dataStore.saveEscalation(esc);
+    esc.setUpdatedBy(user.employeeNo());
+    escalationRepository.save(esc);
 
     return Map.of(ResponseKeys.ESCALATION_ID, esc.getEscalationId(), ResponseKeys.UPDATED, true);
   }
@@ -250,18 +258,26 @@ public class EscalationService {
    */
   public Map<String, Object> addLog(AuthUser user, EscalationLogAddRequest request) {
     requireEscalationAccess(user);
-    EscalationRecord esc = getVisibleEscalation(user, request.escalationId());
+    EscalationEntity esc = getVisibleEscalation(user, request.escalationId());
 
-    EscalationLogRecord log = new EscalationLogRecord();
-    log.setLogId(dataStore.newLogId());
+    OffsetDateTime now = OffsetDateTime.now();
+    EscalationLogEntity log = new EscalationLogEntity();
+    log.setLogId(UlidGenerator.generate());
+    log.setEscalationId(esc.getEscalationId());
     log.setLogText(request.logText());
     log.setAuthorUserId(user.userId());
     log.setAuthorName(user.name());
-    log.setCreatedAt(OffsetDateTime.now());
+    log.setCreatedAt(now);
+    log.setDeleteFlag(false);
+    log.setUpdatedAt(now);
+    log.setUpdatedBy(user.employeeNo());
+    log.setRegisteredAt(now);
+    log.setRegisteredBy(user.employeeNo());
+    escalationLogRepository.save(log);
 
-    esc.getLogs().add(log);
-    esc.setUpdatedAt(OffsetDateTime.now());
-    dataStore.saveEscalation(esc);
+    esc.setUpdatedAt(now);
+    esc.setUpdatedBy(user.employeeNo());
+    escalationRepository.save(esc);
 
     return Map.of(
         ResponseKeys.ESCALATION_ID, esc.getEscalationId(),
@@ -281,26 +297,14 @@ public class EscalationService {
   }
 
   /**
-   * ロール別スコープに絞ったエスカレーション一覧を返す。
-   *
-   * @param user 認証ユーザー
-   * @return 参照可能なエスカレーション一覧
-   */
-  private List<EscalationRecord> scopedEscalations(AuthUser user) {
-    return new ArrayList<>(dataStore.findAllEscalations()).stream()
-        .filter(e -> canView(user, e))
-        .toList();
-  }
-
-  /**
    * 可視なエスカレーション1件を取得し、不可視なら業務例外を送出する。
    *
    * @param user          認証ユーザー
    * @param escalationId  エスカレーションID
    * @return 可視なエスカレーション
    */
-  private EscalationRecord getVisibleEscalation(AuthUser user, String escalationId) {
-    EscalationRecord esc = dataStore.findEscalationById(escalationId)
+  private EscalationEntity getVisibleEscalation(AuthUser user, String escalationId) {
+    EscalationEntity esc = escalationRepository.findByEscalationIdAndDeleteFlagFalse(escalationId)
         .orElseThrow(() -> new BusinessException(ErrorCodes.ESC_404, msg(MessageKeys.ESC_NOT_FOUND)));
     if (!canView(user, esc)) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.ESC_NO_ACCESS_PERMISSION));
@@ -309,23 +313,18 @@ public class EscalationService {
   }
 
   /**
-   * ロールと所属に基づいてエスカレーション閲覧可否を判定する。
+   * ロールと所属に基づいてエスカレーション閲覧可否を判定する（{@link EscalationSpecifications#visibleTo} と同一の判定）。
    *
    * @param user 認証ユーザー
    * @param esc  対象エスカレーション
    * @return 閲覧可否
    */
-  private boolean canView(AuthUser user, EscalationRecord esc) {
-    // SA/OM は全件参照可能（SA はフロントエンドで内容をマスク表示）。
+  private boolean canView(AuthUser user, EscalationEntity esc) {
     if (user.role() == UserRole.SA || user.role() == UserRole.OM) return true;
-    // SM は同一オフィスの全件参照可能。
-    if (user.role() == UserRole.SM) return user.officeCode().equals(esc.getOfficeCode());
-    if (user.role() == UserRole.GL) return user.officeCode().equals(esc.getOfficeCode());
-    // TL は自チームの案件 + 自分が起票した案件。
+    if (user.role() == UserRole.SM || user.role() == UserRole.GL) return user.officeCode().equals(esc.getOfficeCode());
     if (user.role() == UserRole.TL) {
       return user.teamCode().equals(esc.getTeamCode()) || user.userId().equals(esc.getCreatedBy());
     }
-    // SP: 担当者（assigneeUserId）が自分のエスカレーションのみ参照可能。
     if (user.role() == UserRole.SP) {
       return user.userId().equals(esc.getAssigneeUserId());
     }
@@ -339,7 +338,7 @@ public class EscalationService {
    * @param esc  対象エスカレーション
    * @return 更新可否
    */
-  private boolean canUpdate(AuthUser user, EscalationRecord esc) {
+  private boolean canUpdate(AuthUser user, EscalationEntity esc) {
     if (user.role() == UserRole.SA || user.role() == UserRole.SM
       || user.role() == UserRole.OM || user.role() == UserRole.GL) return true;
     // TL は起票者本人またはスコープ内（canView が true であれば更新も許可）。
@@ -379,6 +378,15 @@ public class EscalationService {
     if (status == null || !VALID_STATUSES.contains(status.toUpperCase(Locale.ROOT))) {
       throw new BusinessException(ErrorCodes.VAL_001, msg(MessageKeys.ESC_INVALID_STATUS));
     }
+  }
+
+  /**
+   * 新しいエスカレーションIDを生成する（"ESC" + 9桁の16進文字列）。
+   *
+   * @return エスカレーションID
+   */
+  private String newEscalationId() {
+    return "ESC" + UlidGenerator.generate().substring(0, 9);
   }
 
   /**

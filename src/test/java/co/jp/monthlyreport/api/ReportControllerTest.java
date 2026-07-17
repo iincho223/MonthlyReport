@@ -8,20 +8,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
  * ReportController の MockMvc 統合テスト（API-06〜11）。
- * 各テストは独立した月（YYYY-MM）を使用し、InMemoryDataStore の状態干渉を防ぐ。
+ * 各テストは独立した月（YYYY-MM）を使用し、Testcontainers 上の共有 MariaDB での状態干渉を防ぐ。
  * 初期データ: EMP004（TM）が作成した 2026-03 の月報が存在する。
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class ReportControllerTest {
+class ReportControllerTest extends AbstractIntegrationTest {
 
     @Autowired
     MockMvc mockMvc;

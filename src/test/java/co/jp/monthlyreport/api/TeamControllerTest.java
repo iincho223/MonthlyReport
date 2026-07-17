@@ -1,5 +1,8 @@
 package co.jp.monthlyreport.api;
 
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -8,8 +11,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -21,9 +22,7 @@ import org.springframework.test.web.servlet.MvcResult;
  * 既存シードユーザー（EMP003 等）を tlUserId に指定するとロールが TL に
  * 書き換わり他テストへ副作用が及ぶため、各テストは使い捨てユーザー/グループを用意する。
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class TeamControllerTest {
+class TeamControllerTest extends AbstractIntegrationTest {
 
   @Autowired
   MockMvc mockMvc;
@@ -85,7 +84,11 @@ class TeamControllerTest {
   // API-23: /teams/search
   // -------------------------------------------------------------------------
 
-  /** GL（EMP009）が検索 → 自グループ（GROUP_A）配下の TEAM_A のみ返る。 */
+  /**
+   * GL（EMP009）が検索 → 自グループ（GROUP_A）配下のチームのみ返る（TEAM_A を含む）。
+   * 他テスト（create_success_as_gl 等）が GROUP_A 配下にチームを追加登録する場合があり
+   * 実行順序に依らず成立するよう、件数固定ではなくスコープ（groupCode）で検証する。
+   */
   @Test
   void search_as_gl_own_group_only() throws Exception {
     String token = login("EMP009");
@@ -95,8 +98,8 @@ class TeamControllerTest {
             .content("{}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.resultStatus").value("0"))
-        .andExpect(jsonPath("$.params.teams.length()").value(1))
-        .andExpect(jsonPath("$.params.teams[0].teamCode").value("TEAM_A"));
+        .andExpect(jsonPath("$.params.teams[*].groupCode", everyItem(is("GROUP_A"))))
+        .andExpect(jsonPath("$.params.teams[*].teamCode", hasItem("TEAM_A")));
   }
 
   /** TM（EMP004）が検索 → resultCd=AUTH_403。 */

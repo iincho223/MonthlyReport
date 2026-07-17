@@ -8,8 +8,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -18,9 +16,7 @@ import org.springframework.test.web.servlet.MvcResult;
  * UserController の MockMvc テスト。
  * /users/me の正常系・認証エラー系を検証する。
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class UserControllerTest {
+class UserControllerTest extends AbstractIntegrationTest {
 
     @Autowired
     MockMvc mockMvc;

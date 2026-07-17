@@ -7,11 +7,13 @@ import co.jp.monthlyreport.api.common.MessageKeys;
 import co.jp.monthlyreport.api.common.ResponseKeys;
 import co.jp.monthlyreport.api.dto.request.GroupCreateRequest;
 import co.jp.monthlyreport.api.dto.request.GroupSearchRequest;
-import co.jp.monthlyreport.api.model.GroupRecord;
-import co.jp.monthlyreport.api.model.UserAccount;
+import co.jp.monthlyreport.api.entity.GroupEntity;
+import co.jp.monthlyreport.api.entity.UserEntity;
 import co.jp.monthlyreport.api.model.UserRole;
-import co.jp.monthlyreport.api.repository.InMemoryDataStore;
-import java.util.ArrayList;
+import co.jp.monthlyreport.api.repository.GroupRepository;
+import co.jp.monthlyreport.api.repository.TeamRepository;
+import co.jp.monthlyreport.api.repository.UserRepository;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -28,11 +30,16 @@ import org.springframework.stereotype.Service;
  */
 public class GroupService {
 
-  private final InMemoryDataStore dataStore;
+  private final GroupRepository groupRepository;
+  private final TeamRepository teamRepository;
+  private final UserRepository userRepository;
   private final MessageSource messageSource;
 
-  public GroupService(InMemoryDataStore dataStore, MessageSource messageSource) {
-    this.dataStore = dataStore;
+  public GroupService(GroupRepository groupRepository, TeamRepository teamRepository,
+      UserRepository userRepository, MessageSource messageSource) {
+    this.groupRepository = groupRepository;
+    this.teamRepository = teamRepository;
+    this.userRepository = userRepository;
     this.messageSource = messageSource;
   }
 
@@ -51,7 +58,7 @@ public class GroupService {
     int page = request.page() == null ? 1 : request.page();
     int size = request.size() == null ? 20 : request.size();
 
-    List<GroupRecord> filtered = scopedGroups(user).stream()
+    List<GroupEntity> filtered = scopedGroups(user).stream()
         .filter(g -> request.officeCode() == null || request.officeCode().isBlank() || request.officeCode().equals(g.getOfficeCode()))
         .filter(g -> request.groupName() == null || request.groupName().isBlank() || g.getGroupName().contains(request.groupName()))
         .sorted((a, b) -> a.getGroupCode().compareTo(b.getGroupCode()))
@@ -89,24 +96,29 @@ public class GroupService {
     if (user.role() == UserRole.OM && !user.officeCode().equals(request.officeCode())) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.GROUP_NO_CREATE_SCOPE));
     }
-    UserAccount glUser = dataStore.findUserById(request.glUserId())
-        .filter(u -> !u.isDeleted())
+    UserEntity glUser = userRepository.findByUserIdAndDeleteFlagFalse(request.glUserId())
         .orElseThrow(() -> new BusinessException(ErrorCodes.USER_404, msg(MessageKeys.GROUP_GL_USER_NOT_FOUND)));
-    if (dataStore.findGroupByCode(request.groupCode()).filter(g -> !g.isDeleted()).isPresent()) {
+    if (groupRepository.existsByGroupCodeAndDeleteFlagFalse(request.groupCode())) {
       throw new BusinessException(ErrorCodes.GROUP_409, msg(MessageKeys.GROUP_DUPLICATE_CODE));
     }
 
-    GroupRecord group = new GroupRecord();
+    GroupEntity group = new GroupEntity();
     group.setGroupCode(request.groupCode());
     group.setGroupName(request.groupName());
     group.setOfficeCode(request.officeCode());
     group.setGlUserId(request.glUserId());
-    group.setDeleted(false);
-    dataStore.saveGroup(group);
+    group.setDeleteFlag(false);
+    group.setUpdatedAt(OffsetDateTime.now());
+    group.setUpdatedBy(user.employeeNo());
+    group.setRegisteredAt(OffsetDateTime.now());
+    group.setRegisteredBy(user.employeeNo());
+    groupRepository.save(group);
 
     // 指定ユーザーのロールを GL に更新する。
-    glUser.setRole(UserRole.GL);
-    dataStore.registerUser(glUser);
+    glUser.setRoleCode(UserRole.GL.name());
+    glUser.setUpdatedAt(OffsetDateTime.now());
+    glUser.setUpdatedBy(user.employeeNo());
+    userRepository.save(glUser);
 
     return Map.of(ResponseKeys.GROUP_CODE, group.getGroupCode(), ResponseKeys.GROUP_NAME, group.getGroupName());
   }
@@ -124,16 +136,17 @@ public class GroupService {
     if (!canManage(user) || user.role() == UserRole.GL) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.GROUP_NO_DELETE_PERMISSION));
     }
-    GroupRecord group = dataStore.findGroupByCode(groupCode)
-        .filter(g -> !g.isDeleted())
+    GroupEntity group = groupRepository.findByGroupCodeAndDeleteFlagFalse(groupCode)
         .orElseThrow(() -> new BusinessException(ErrorCodes.GROUP_404, msg(MessageKeys.GROUP_NOT_FOUND)));
 
     if (user.role() == UserRole.OM && !user.officeCode().equals(group.getOfficeCode())) {
       throw new BusinessException(ErrorCodes.AUTH_403, msg(MessageKeys.GROUP_NO_DELETE_SCOPE));
     }
 
-    group.setDeleted(true);
-    dataStore.saveGroup(group);
+    group.setDeleteFlag(true);
+    group.setUpdatedAt(OffsetDateTime.now());
+    group.setUpdatedBy(user.employeeNo());
+    groupRepository.save(group);
     return Map.of(ResponseKeys.GROUP_CODE, group.getGroupCode(), ResponseKeys.DELETED, true);
   }
 
@@ -164,10 +177,8 @@ public class GroupService {
    * @param user 認証ユーザー
    * @return 参照可能なグループ一覧
    */
-  private List<GroupRecord> scopedGroups(AuthUser user) {
-    List<GroupRecord> all = new ArrayList<>(dataStore.findAllGroups()).stream()
-        .filter(g -> !g.isDeleted())
-        .toList();
+  private List<GroupEntity> scopedGroups(AuthUser user) {
+    List<GroupEntity> all = groupRepository.findByDeleteFlagFalse();
 
     if (user.role() == UserRole.SA) {
       return all;
@@ -185,16 +196,15 @@ public class GroupService {
    * @param group 対象グループ
    * @return レスポンス項目マップ
    */
-  private Map<String, Object> toItem(GroupRecord group) {
-    long teamCount = dataStore.findAllTeams().stream()
-        .filter(t -> !t.isDeleted() && t.getGroupCode().equals(group.getGroupCode()))
+  private Map<String, Object> toItem(GroupEntity group) {
+    long teamCount = teamRepository.findByDeleteFlagFalse().stream()
+        .filter(t -> t.getGroupCode().equals(group.getGroupCode()))
         .count();
-    long memberCount = dataStore.findAllUsers().stream()
-        .filter(u -> !u.isDeleted())
-        .filter(u -> dataStore.findAllTeams().stream()
-            .anyMatch(t -> !t.isDeleted() && t.getGroupCode().equals(group.getGroupCode()) && t.getTeamCode().equals(u.getTeamCode())))
+    long memberCount = userRepository.findByDeleteFlagFalse().stream()
+        .filter(u -> teamRepository.findByDeleteFlagFalse().stream()
+            .anyMatch(t -> t.getGroupCode().equals(group.getGroupCode()) && t.getTeamCode().equals(u.getTeamCode())))
         .count();
-    String glUserName = dataStore.findUserById(group.getGlUserId()).map(UserAccount::getName).orElse(null);
+    String glUserName = userRepository.findByUserIdAndDeleteFlagFalse(group.getGlUserId()).map(UserEntity::getUserName).orElse(null);
 
     Map<String, Object> item = new HashMap<>();
     item.put(ResponseKeys.GROUP_CODE, group.getGroupCode());
